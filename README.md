@@ -299,60 +299,182 @@ For a browser-redirect flow, get the token however you normally do and reach it 
 
 ## Configuration
 
-Everything below is the default; pass only what you want changed. Each field is documented inline in [`lua/curlite/config.lua`](lua/curlite/config.lua).
+`setup()` deep-merges over the defaults, so pass only what you want changed.
+Every field is documented inline in [`lua/curlite/config.lua`](lua/curlite/config.lua),
+and in full in `:h curlite-configuration`.
+
+<details open>
+<summary><b>The complete default table</b></summary>
 
 ```lua
 require("curlite").setup({
+  -- Filetypes curlite attaches to; keymaps and on_attach fire for each.
+  filetypes = { "http" },
+  filetype = {
+    register = true,                       -- let curlite call vim.filetype.add
+    extensions = { "rest" },               -- .http is already native
+    patterns = { [".*%.http%..*"] = "http" }, -- api.http.dev, api.http.local
+  },
+  on_attach = nil,                         -- function(bufnr), for your own binds
+
   curl = {
     path = "curl",
     args = { "--location", "--no-buffer" },
-    timeout = 30000,                 -- ms; 0 disables. `# @timeout` overrides.
-    verify_ssl = true,
-    cookie_jar = vim.fn.stdpath("data") .. "/curlite/cookies.txt",
+    timeout = 30000,                       -- ms; 0 disables. `# @timeout` wins.
+    verify_ssl = true,                     -- false adds --insecure to everything
+    cookie_jar = vim.fn.stdpath("data") .. "/curlite/cookies.txt", -- false disables
   },
 
   request = {
-    variables_scope = "request",     -- or "document" (kulala's behaviour)
+    variables_scope = "request",           -- or "document" (kulala's behaviour)
     default_headers = { ["User-Agent"] = "curlite.nvim" },
-    infer_content_type = true,
-    substitute_in_response = false,
+    infer_content_type = true,             -- JSON-looking body -> application/json
+    substitute_in_response = false,        -- expand {{...}} in the response too
   },
 
   ui = {
-    display = "right",               -- right|left|below|above|float|tab
-    width = 88,
-    height = 20,
+    display = "right",                     -- right|left|below|above|float|tab
+    width = 88,                            -- columns, for a left/right split
+    height = 20,                           -- rows, for an above/below split
+    float = { width = 0.8, height = 0.8, border = "rounded" },
     default_pane = "body",
     panes = { "body", "headers", "all", "stats", "verbose", "script" },
-    winbar = true,
-    focus = false,                   -- keep the cursor in the request buffer
+    winbar = true,                         -- the pane tabs and status line
+    focus = false,                         -- keep the cursor in the request buffer
     wrap = false,
-    inline_status = true,            -- ` 200 OK · 143ms` on the request line
+    number = false,
+    inline_status = true,                  -- ` 200 OK · 143ms` on the request line
+    icons = {
+      success  = "",
+      error    = "",
+      running  = "",
+      redirect = "",
+    },
+    highlights = {                         -- see "Highlights" below
+      success      = "DiagnosticOk",
+      redirect     = "DiagnosticInfo",
+      client_error = "DiagnosticWarn",
+      server_error = "DiagnosticError",
+      running      = "Comment",
+      inline       = "Comment",
+    },
   },
 
   response = {
-    format = true,
+    format = true,                         -- pretty-print bodies
     indent = 2,
-    max_format_size = 1024 * 1024,   -- skip formatting above this; 0 = no limit
-    show_request = true,
+    filetypes = {                          -- Content-Type substring -> filetype
+      json = "json", xml = "xml", html = "html",
+      javascript = "javascript", css = "css", yaml = "yaml", text = "text",
+    },
+    max_format_size = 1024 * 1024,         -- above this, show raw. 0 = no limit
+    show_request = true,                   -- include the request in the `all` pane
   },
 
   env = {
     files = { "http-client.env.json", "http-client.private.env.json" },
-    dotenv = ".env",
-    default = nil,                   -- nil = remember the last choice
+    dotenv = ".env",                       -- false disables {{$dotenv NAME}}
+    default = nil,                         -- nil = remember the last choice
     shared_key = "$shared",
   },
 
-  scripts = { enable = true, sandbox = true, timeout = 5000 },
-  history = { size = 50 },
+  scripts = {
+    enable = true,
+    sandbox = true,                        -- no io, os.execute, debug, jit, require
+    timeout = 5000,                        -- ms; stops a runaway loop. 0 disables
+  },
 
-  notify = "errors",                 -- all|errors|none
-  debug = false,                     -- log every command to stdpath("log")
+  history = { size = 50 },                 -- responses kept for [ and ]. 0 = all
+
+  -- Buffer-local, in every .http buffer. Set one to false to drop it,
+  -- or keymaps = false to bind everything yourself.
+  keymaps = {
+    send         = "<leader>Rs",
+    send_all     = "<leader>Ra",
+    replay       = "<leader>Rr",
+    toggle       = "<leader>Ro",
+    select_env   = "<leader>Re",
+    pick_request = "<leader>Rf",
+    copy_curl    = "<leader>Ry",
+    paste_curl   = "<leader>Rp",
+    inspect      = "<leader>Ri",
+    clear        = "<leader>Rc",
+    next_request = "]r",
+    prev_request = "[r",
+  },
+
+  -- Inside the response window. Same rules.
+  result_keymaps = {
+    close           = "q",
+    next_pane       = "L",
+    prev_pane       = "H",
+    next_history    = "]",
+    prev_history    = "[",
+    jump_to_request = "gd",
+    yank_body       = "Y",
+    save_body       = "gs",
+    filter          = "/",
+    refresh         = "R",
+  },
+
+  notify = "errors",                       -- all|errors|none
+  debug = false,                           -- log commands to stdpath("log")
 })
 ```
 
-Set any keymap to `false` to drop it, or `keymaps = false` to bind everything yourself. `on_attach = function(bufnr) ... end` runs for every `.http` buffer.
+</details>
+
+### Where the response opens
+
+`ui.display` takes `right` (default), `left`, `below`, `above`, `float` or `tab`.
+`vertical` and `horizontal` are aliases for `right` and `below`.
+
+`ui.width` sizes a vertical split, `ui.height` a horizontal one; `0` leaves it
+to Neovim, and a size you set by hand sticks while the window is open. For
+`float`, `ui.float.width`/`height` are fractions of the editor and
+`ui.float.border` is anything `nvim_open_win` accepts.
+
+`ui.focus = false` keeps the cursor in the request buffer so you can fire the
+next request straight away. The window carries `winfixbuf`, so a stray
+`:bnext` or a plugin can't replace your response with something else.
+
+Drop any pane you never open from `ui.panes` — it leaves the winbar and the
+`H`/`L` cycle with it.
+
+### Highlights
+
+Every group is a link with `default = true`, so it follows your colorscheme,
+anything you set wins, and a `:colorscheme` change is picked up automatically.
+
+Six carry meaning and are configurable through `ui.highlights`:
+
+| group | when | default |
+| --- | --- | --- |
+| `CurliteSuccess` | 2xx | `DiagnosticOk` |
+| `CurliteRedirect` | 3xx | `DiagnosticInfo` |
+| `CurliteClientError` | 4xx | `DiagnosticWarn` |
+| `CurliteServerError` | 5xx, and a failed request | `DiagnosticError` |
+| `CurliteRunning` | in flight | `Comment` |
+| `CurliteInline` | the inline virtual text | `Comment` |
+
+The rest describe curlite's own furniture and are fixed links — override them
+with `:highlight` if you want:
+
+| group | | group | |
+| --- | --- | --- | --- |
+| `CurlitePaneActive` | the pane you're on | `CurliteSection` | a Stats/Script heading |
+| `CurlitePaneInactive` | the other tabs | `CurliteLabel` | a Stats label |
+| `CurliteStatusLine` | the `HTTP/2` prefix | `CurliteValue` | a Stats value |
+| `CurliteHeaderName` | a header's name | `CurliteTotal` | the Total timing row |
+| `CurliteHeaderValue` | a header's value | `CurliteLogLine` | a `client.log` line |
+| `CurliteMethod` | the request's method | `CurliteTestPass` | a passing assertion |
+| `CurliteUrl` | the request's URL | `CurliteTestFail` | a failing one |
+| `CurliteRule` | the request/response divider | `CurliteTestDetail` | a failure's detail |
+| | | `CurliteTestName` | a passing test's name |
+
+`.http` buffers use a treesitter `http` parser when one is installed; otherwise
+curlite's own `syntax/http.vim` runs — `:h curlite-highlights-http` lists every
+group it defines.
 
 <details>
 <summary><b>blink.cmp</b></summary>
@@ -375,7 +497,8 @@ require("blink.cmp").setup({
 require("lualine").setup({ sections = { lualine_x = { "curlite" } } })
 ```
 
-Shows the active environment and the last response. `require("curlite").current_env()` is the building block for any other statusline.
+Shows the active environment and the last response. `require("curlite").current_env()`
+is the building block for any other statusline.
 
 </details>
 
