@@ -41,6 +41,19 @@ local VALUE_FLAGS = {
   ["--key"] = "key",
   ["--max-redirs"] = "max-redirs",
   ["--aws-sigv4"] = "aws-sigv4",
+  -- Flags that take a value and have no `.http` equivalent. They are listed
+  -- so their *value* isn't mistaken for the URL.
+  ["-c"] = "ignore",
+  ["--cookie-jar"] = "ignore",
+  ["-w"] = "ignore",
+  ["--write-out"] = "ignore",
+  ["-D"] = "ignore",
+  ["--dump-header"] = "ignore",
+  ["--trace"] = "ignore",
+  ["--trace-ascii"] = "ignore",
+  ["--stderr"] = "ignore",
+  ["--config"] = "ignore",
+  ["-K"] = "ignore",
 }
 
 -- Boolean flags worth carrying over as metadata.
@@ -92,6 +105,10 @@ function M.from_curl(command)
   local url, method, body
   local headers, header_order = {}, {}
   local meta, forms, urlencoded = {}, {}, {}
+  -- Positional arguments, resolved into the URL at the end. Collecting them
+  -- rather than taking the first one means an unrecognised flag that happens
+  -- to take a value can't have that value mistaken for the URL.
+  local positional = {}
 
   local function add_header(name, value)
     if headers[name] == nil then
@@ -140,7 +157,13 @@ function M.from_curl(command)
       elseif kind == "referer" then
         add_header("Referer", value)
       elseif kind == "cookie" then
-        add_header("Cookie", value)
+        -- curl reads `-b` as a cookie string when it contains `=`, and as a
+        -- path to a jar otherwise.
+        if value:find("=", 1, true) then
+          add_header("Cookie", value)
+        end
+      elseif kind == "ignore" then
+        -- consumed purely so the value isn't read as the URL
       elseif kind == "url" then
         url = value
       elseif kind == "max-time" then
@@ -158,11 +181,23 @@ function M.from_curl(command)
       -- An unrecognised flag: keep it verbatim rather than lose it.
       meta._curl = meta._curl or {}
       table.insert(meta._curl, arg)
-    elseif not url then
-      url = arg
+    else
+      table.insert(positional, arg)
     end
 
     i = i + 1
+  end
+
+  if not url then
+    -- Prefer a positional argument that actually looks like a URL; fall back
+    -- to the first one so an unusual but valid command still converts.
+    for _, candidate in ipairs(positional) do
+      if candidate:match("^%a[%w+.-]*://") or candidate:match("^[%w.-]+%.%a%a+") then
+        url = candidate
+        break
+      end
+    end
+    url = url or positional[1]
   end
 
   if not url then

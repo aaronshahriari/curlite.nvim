@@ -394,6 +394,24 @@ local function win_valid()
   return M.winid ~= nil and vim.api.nvim_win_is_valid(M.winid)
 end
 
+--- Swap the buffer shown in the response window.
+---
+--- The window sets `winfixbuf` so a stray `:bnext` or a plugin can't replace
+--- the response with something else -- which also blocks *us* from switching
+--- panes, so it comes off for the duration of the swap.
+---@param win integer
+---@param buf integer
+local function set_win_buf(win, buf)
+  local fixed = vim.wo[win].winfixbuf
+  if fixed then
+    vim.wo[win].winfixbuf = false
+  end
+  vim.api.nvim_win_set_buf(win, buf)
+  if fixed then
+    vim.wo[win].winfixbuf = true
+  end
+end
+
 ---@param buf integer
 local function open_window(buf)
   local cfg = config.get().ui
@@ -596,7 +614,7 @@ function M.show(result, opts)
   if not win_valid() then
     open_window(buf)
   elseif vim.api.nvim_win_get_buf(M.winid) ~= buf then
-    vim.api.nvim_win_set_buf(M.winid, buf)
+    set_win_buf(M.winid, buf)
   end
 
   if win_valid() then
@@ -663,7 +681,7 @@ function M.show_pending(req)
   if not win_valid() then
     open_window(buf)
   elseif vim.api.nvim_win_get_buf(M.winid) ~= buf then
-    vim.api.nvim_win_set_buf(M.winid, buf)
+    set_win_buf(M.winid, buf)
   end
   if win_valid() and cfg.winbar then
     vim.wo[M.winid].winbar = ("%%#CurliteRunning# %s %s %s%%*"):format(

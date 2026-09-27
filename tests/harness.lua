@@ -3,10 +3,32 @@
 
 vim.opt.runtimepath:prepend(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h"))
 
+-- curlite reports errors through `vim.notify` regardless of its `notify`
+-- setting, which is right in the editor and noise here. Collect them instead,
+-- so a test can look at them but they don't interleave with the results.
+local notifications = {}
+vim.notify = function(msg, level)
+  table.insert(notifications, { msg = msg, level = level })
+end
+
 local pass, fail = 0, 0
 local failures = {}
 
 local t = {}
+
+t.notifications = notifications
+
+--- The messages curlite has notified since the last `t.drain()`.
+---@return { msg: string, level: integer }[]
+function t.drain()
+  local out = vim.deepcopy(notifications)
+  notifications = {}
+  -- Rebind so the closure above keeps writing to the live table.
+  vim.notify = function(msg, level)
+    table.insert(notifications, { msg = msg, level = level })
+  end
+  return out
+end
 
 function t.eq(got, want, msg)
   if not vim.deep_equal(got, want) then
