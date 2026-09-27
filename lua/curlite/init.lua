@@ -120,29 +120,35 @@ function M.run_all(opts)
   end
 
   ui.clear_inline(bufnr)
-  local ok_count, fail_count = 0, 0
+  local ok_count, fail_count, skip_count = 0, 0, 0
 
   exec.send_sequence(doc.requests, {
     bufnr = bufnr,
     stop_on_error = opts.stop_on_error,
     on_each = function(result)
       ui.set_inline(result, bufnr)
-      if result.response and result.response.status < 400 and not result.error then
+      if result.skipped then
+        skip_count = skip_count + 1
+      elseif result.response and result.response.status < 400 and not result.error then
         ok_count = ok_count + 1
-      elseif not result.skipped then
+      else
         fail_count = fail_count + 1
       end
-      if not opts.quiet then
+      -- A skipped request has no response, so showing it would replace the
+      -- last real one with an empty window and push a dead entry into the
+      -- history. The inline status above already says it was skipped.
+      if not opts.quiet and not result.skipped then
         ui.show(result)
       end
     end,
     on_finish = function(results)
       util.alert(
-        ("curlite: ran %d request%s — %d ok, %d failed"):format(
-          #results,
-          #results == 1 and "" or "s",
+        ("curlite: ran %d request%s — %d ok, %d failed%s"):format(
+          #results - skip_count,
+          (#results - skip_count) == 1 and "" or "s",
           ok_count,
-          fail_count
+          fail_count,
+          skip_count > 0 and (", %d skipped"):format(skip_count) or ""
         ),
         fail_count > 0 and vim.log.levels.WARN or vim.log.levels.INFO
       )
@@ -168,7 +174,9 @@ function M.run_from_cursor()
     bufnr = bufnr,
     on_each = function(result)
       ui.set_inline(result, bufnr)
-      ui.show(result)
+      if not result.skipped then
+        ui.show(result)
+      end
     end,
   })
 end

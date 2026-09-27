@@ -620,4 +620,42 @@ function M.curl_errormsg_is_used(t)
   t.truthy(#r.error > 12, "expected a detailed message, got: " .. r.error)
 end
 
+function M.send_all_does_not_show_a_skipped_request(t)
+  if not server_up() then
+    return
+  end
+  local ui = require("curlite.ui")
+  ui.reset()
+
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  require("curlite.util").write_file(
+    dir .. "/all.http",
+    ([[
+### REAL
+GET %s/json
+
+### DISABLED
+# @skip
+DELETE %s/echo
+]]):format(BASE, BASE)
+  )
+
+  vim.cmd("edit " .. dir .. "/all.http")
+  local done = false
+  require("curlite").run_all({ on_finish = function()
+    done = true
+  end })
+  vim.wait(20000, function()
+    return done
+  end, 20)
+
+  -- A skipped request has no response; it must not become the entry the
+  -- response window is showing, nor take a slot in the history.
+  t.eq(#ui.history, 1)
+  t.eq(ui.history[1].raw.name, "REAL")
+  t.eq(ui.history[ui.history_index].response.status, 200)
+  ui.reset()
+end
+
 return M

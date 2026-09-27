@@ -8,7 +8,9 @@ if exists('b:current_syntax')
   finish
 endif
 
-if luaeval('vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] ~= nil')
+" `highlighter.active` is internal, so reach for it defensively: if the field
+" ever moves, fall through and highlight with this file rather than error out.
+if luaeval('(function() local ok, r = pcall(function() return vim.treesitter.highlighter.active[vim.api.nvim_get_current_buf()] ~= nil end) return ok and r end)()')
   finish
 endif
 
