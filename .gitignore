@@ -1,0 +1,22 @@
+# Python bytecode from the test server
+__pycache__/
+*.pyc
+
+# OS/editor junk
+.DS_Store
+*.swp
+*.swo
+
+# Local env/secrets -- http-client.private.env.json is the one that holds
+# tokens, and a .env sitting next to a .http file is read by curlite itself.
+.env
+.env.*
+http-client.private.env.json
+*.local
+
+# Claude Code local settings
+.claude/
+
+# Scratch request files
+scratch.http
+scratch.rest
