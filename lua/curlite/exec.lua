@@ -276,120 +276,143 @@ function M.send(raw, opts)
     return nil
   end
 
-  M.last = { request = raw, source = raw.source, bufnr = opts.bufnr }
+  local function dispatch()
+    M.last = { request = raw, source = raw.source, bufnr = opts.bufnr }
 
-  if opts.on_start then
-    opts.on_start(resolved)
-  end
+    if opts.on_start then
+      opts.on_start(resolved)
+    end
 
-  if opts.dry_run then
-    finish({
-      request = resolved,
-      raw = raw,
-      command = cmd,
-      response = nil,
-      script = pre,
-      skipped = false,
-      aborted = false,
-      error = nil,
-      duration_ms = 0,
-    })
-    return nil
-  end
-
-  -- `# @delay 500` waits before firing; useful for rate-limited APIs in a
-  -- "send all" run.
-  local delay = tonumber(resolved.metadata and resolved.metadata.delay) or 0
-
-  local function spawn()
-    local started = vim.uv.hrtime()
-    next_id = next_id + 1
-    local id = next_id
-
-    util.log("send", table.concat(cmd.argv, " "))
-
-    local sysopts = {
-      stdin = cmd.stdin,
-      text = false,
-      -- vim.system's own timeout is a backstop: curl's --max-time should fire
-      -- first, and this catches a curl that wedged before it applied.
-      timeout = cmd.timeout > 0 and (cmd.timeout + 2000) or nil,
-    }
-
-    local handle = vim.system(cmd.argv, sysopts, function(sysresult)
-      M.running[id] = nil
-      local duration_ms = (vim.uv.hrtime() - started) / 1e6
-
-      -- vim.system's callback runs in a fast event context, where most of
-      -- `vim.fn` is off limits. Everything below -- scripts, `>>` file
-      -- writes, the UI -- wants a normal context, so hand off immediately.
-      vim.schedule(function()
-
-      -- vim.system gives bytes; the pieces we read are text.
-      sysresult.stdout = sysresult.stdout and tostring(sysresult.stdout) or ""
-      sysresult.stderr = sysresult.stderr and tostring(sysresult.stderr) or ""
-
-      local resp = response.build(cmd, sysresult, duration_ms)
-
-      if cfg.request.substitute_in_response and resp.body ~= "" then
-        resp.body = variables.render(resp.body, variables.context(resolved, raw.source)) or resp.body
-      end
-
-      local post = nil
-      if not resp.error then
-        post = scripts.run_post(resolved, resp)
-        if post.error then
-          util.warn(("curlite: post-request script: %s"):format(post.error))
-        end
-      end
-
-      if opts.record ~= false then
-        variables.record(raw.name, {
-          method = resolved.method,
-          url = resolved.url,
-          headers = resolved.headers,
-          body = cmd.sent_body,
-        }, resp)
-      end
-
-      -- `>> ./file` writes the body out.
-      if resolved.redirect and resp.body ~= "" then
-        local path = util.resolve_path(resolved.redirect.path, raw.source)
-        if vim.fn.filereadable(path) == 1 and not resolved.redirect.overwrite then
-          util.warn(("curlite: %s exists; use `>>!` to overwrite"):format(path))
-        else
-          local ok, werr = util.write_file(path, resp.body)
-          if not ok then
-            util.warn(("curlite: %s"):format(werr))
-          end
-        end
-      end
-
-      response.cleanup(cmd)
-
+    if opts.dry_run then
       finish({
         request = resolved,
         raw = raw,
         command = cmd,
-        response = resp,
-        script = scripts.merge(pre, post),
+        response = nil,
+        script = pre,
         skipped = false,
-        aborted = (post and post.abort) or false,
-        error = resp.error,
-        duration_ms = resp.duration_ms,
+        aborted = false,
+        error = nil,
+        duration_ms = 0,
       })
-      end)
-    end)
+      return nil
+    end
 
-    M.running[id] = handle
-    return id
+    local function spawn()
+      local started = vim.uv.hrtime()
+      next_id = next_id + 1
+      local id = next_id
+
+      util.log("send", table.concat(cmd.argv, " "))
+
+      local sysopts = {
+        stdin = cmd.stdin,
+        text = false,
+        -- vim.system's own timeout is a backstop: curl's --max-time should fire
+        -- first, and this catches a curl that wedged before it applied.
+        timeout = cmd.timeout > 0 and (cmd.timeout + 2000) or nil,
+      }
+
+      local handle = vim.system(cmd.argv, sysopts, function(sysresult)
+        M.running[id] = nil
+        local duration_ms = (vim.uv.hrtime() - started) / 1e6
+
+        -- vim.system's callback runs in a fast event context, where most of
+        -- `vim.fn` is off limits. Everything below -- scripts, `>>` file
+        -- writes, the UI -- wants a normal context, so hand off immediately.
+        vim.schedule(function()
+          -- vim.system gives bytes; the pieces we read are text.
+          sysresult.stdout = sysresult.stdout and tostring(sysresult.stdout) or ""
+          sysresult.stderr = sysresult.stderr and tostring(sysresult.stderr) or ""
+
+          local resp = response.build(cmd, sysresult, duration_ms)
+
+          if cfg.request.substitute_in_response and resp.body ~= "" then
+            resp.body = variables.render(resp.body, variables.context(resolved, raw.source)) or resp.body
+          end
+
+          local post = nil
+          if not resp.error then
+            post = scripts.run_post(resolved, resp)
+            if post.error then
+              util.warn(("curlite: post-request script: %s"):format(post.error))
+            end
+          end
+
+          if opts.record ~= false then
+            variables.record(raw.name, {
+              method = resolved.method,
+              url = resolved.url,
+              headers = resolved.headers,
+              body = cmd.sent_body,
+            }, resp)
+          end
+
+          -- `>> ./file` writes the body out.
+          if resolved.redirect and resp.body ~= "" then
+            local path = util.resolve_path(resolved.redirect.path, raw.source)
+            if vim.fn.filereadable(path) == 1 and not resolved.redirect.overwrite then
+              util.warn(("curlite: %s exists; use `>>!` to overwrite"):format(path))
+            else
+              local ok, werr = util.write_file(path, resp.body)
+              if not ok then
+                util.warn(("curlite: %s"):format(werr))
+              end
+            end
+          end
+
+          response.cleanup(cmd)
+
+          finish({
+            request = resolved,
+            raw = raw,
+            command = cmd,
+            response = resp,
+            script = scripts.merge(pre, post),
+            skipped = false,
+            aborted = (post and post.abort) or false,
+            error = resp.error,
+            duration_ms = resp.duration_ms,
+          })
+        end)
+      end)
+
+      M.running[id] = handle
+      return id
+    end
+
+    -- `# @delay 500` waits before firing; useful for rate-limited APIs in a
+    -- "send all" run.
+    local delay = tonumber(resolved.metadata and resolved.metadata.delay) or 0
+    if delay > 0 then
+      vim.defer_fn(spawn, delay)
+      return nil
+    end
+    return spawn()
   end
 
-  if delay > 0 then
-    vim.defer_fn(spawn, delay)
+  if raw.metadata and raw.metadata.confirm and not opts.dry_run then
+    require("curlite.confirm").ask(cmd, function(approved)
+      if approved then
+        dispatch()
+      else
+        finish({
+          request = resolved,
+          raw = raw,
+          command = cmd,
+          response = nil,
+          script = pre,
+          skipped = true,
+          aborted = false,
+          error = nil,
+          duration_ms = 0,
+        })
+      end
+    end)
     return nil
   end
-  return spawn()
+
+  return dispatch()
 end
 
 --- Send several requests in order, stopping on an abort.

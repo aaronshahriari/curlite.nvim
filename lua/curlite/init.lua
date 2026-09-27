@@ -229,46 +229,10 @@ function M.inspect()
       table.insert(lines, ("%s %s"):format(resolved.method, resolved.url))
     end
   else
-    table.insert(lines, ("%s %s"):format(cmd.request.method, cmd.request.url))
-    for _, name in ipairs(cmd.request.header_order) do
-      if cmd.request.headers[name] then
-        table.insert(lines, ("%s: %s"):format(name, cmd.request.headers[name]))
-      end
-    end
-    if cmd.sent_body then
-      table.insert(lines, "")
-      vim.list_extend(lines, vim.split(cmd.sent_body, "\n", { plain = true }))
-    end
-    table.insert(lines, "")
-    table.insert(lines, "# curl equivalent")
-    vim.list_extend(
-      lines,
-      vim.split(require("curlite.curl").to_shell(cmd, true), "\n", { plain = true })
-    )
+    lines = require("curlite.preview").lines(cmd, true)
   end
 
-  local width = 0
-  for _, l in ipairs(lines) do
-    width = math.max(width, vim.fn.strdisplaywidth(l))
-  end
-
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].filetype = "http"
-  vim.bo[buf].modifiable = false
-
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = "editor",
-    width = math.min(width + 4, vim.o.columns - 8),
-    height = math.min(#lines + 1, vim.o.lines - 8),
-    row = math.floor(vim.o.lines * 0.15),
-    col = math.floor((vim.o.columns - math.min(width + 4, vim.o.columns - 8)) / 2),
-    style = "minimal",
-    border = config.get().ui.float.border,
-    title = " resolved request ",
-    title_pos = "center",
-  })
-  vim.wo[win].wrap = false
+  local buf, win = require("curlite.preview").open(lines, { title = " resolved request ", focus = true })
   for _, key in ipairs({ "q", "<Esc>" }) do
     vim.keymap.set("n", key, function()
       pcall(vim.api.nvim_win_close, win, true)
@@ -579,6 +543,7 @@ function M.attach(bufnr)
       M.paste_curl()
     end, "paste curl as request")
     map(maps.inspect, M.inspect, "inspect resolved request")
+    map(maps.hover, M.inspect, "preview request")
     map(maps.clear, M.clear, "clear")
     map(maps.next_request, function()
       M.goto_request(1)

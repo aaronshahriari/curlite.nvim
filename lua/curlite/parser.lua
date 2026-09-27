@@ -280,6 +280,11 @@ function M.parse(lines, source)
       reset(i)
       section_started = true
       local label = trim(stripped:gsub("^#+", ""))
+      local clean, markers = label:gsub("%[[Cc][Oo][Nn][Ff][Ii][Rr][Mm]%]", "")
+      if markers > 0 then
+        pending_meta.confirm = true
+        label = trim(clean:gsub("%s+", " "))
+      end
       if label ~= "" then
         req.name = label
       end

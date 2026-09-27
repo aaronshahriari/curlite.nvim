@@ -55,13 +55,35 @@ function M.setup_highlights()
   for name, target in pairs(links) do
     vim.api.nvim_set_hl(0, name, { link = target, default = true })
   end
-  -- Winbar pane tabs.
-  vim.api.nvim_set_hl(0, "CurlitePaneActive", { link = "TabLineSel", default = true })
-  vim.api.nvim_set_hl(0, "CurlitePaneInactive", { link = "TabLine", default = true })
-  vim.api.nvim_set_hl(0, "CurliteHeaderName", { link = "Identifier", default = true })
-  vim.api.nvim_set_hl(0, "CurliteHeaderValue", { link = "String", default = true })
-  vim.api.nvim_set_hl(0, "CurliteTestPass", { link = "DiagnosticOk", default = true })
-  vim.api.nvim_set_hl(0, "CurliteTestFail", { link = "DiagnosticError", default = true })
+  -- The rest are fixed links rather than config, because they describe
+  -- curlite's own layout rather than a response's meaning. Override any of
+  -- them with `:highlight` -- `default = true` means yours wins.
+  local fixed = {
+    -- winbar
+    CurlitePaneActive = "TabLineSel",
+    CurlitePaneInactive = "TabLine",
+    -- headers / request panes
+    CurliteHeaderName = "Identifier",
+    CurliteHeaderValue = "String",
+    CurliteMethod = "Keyword",
+    CurliteUrl = "Underlined",
+    CurliteStatusLine = "Title",
+    CurliteRule = "WinSeparator",
+    -- stats pane
+    CurliteSection = "Title",
+    CurliteLabel = "Comment",
+    CurliteValue = "Normal",
+    CurliteTotal = "Special",
+    -- script pane
+    CurliteTestPass = "DiagnosticOk",
+    CurliteTestFail = "DiagnosticError",
+    CurliteTestName = "Normal",
+    CurliteTestDetail = "Comment",
+    CurliteLogLine = "Normal",
+  }
+  for name, target in pairs(fixed) do
+    vim.api.nvim_set_hl(0, name, { link = target, default = true })
+  end
 end
 
 ---@param status integer
@@ -166,7 +188,18 @@ local function render_headers(result)
     end
     local status_line = ("%s %d %s"):format(hop.http_version, hop.status, hop.status_text)
     table.insert(lines, status_line)
-    table.insert(marks, { line = #lines - 1, col = 0, end_col = #status_line, hl = status_hl(hop.status) })
+    table.insert(marks, {
+      line = #lines - 1,
+      col = 0,
+      end_col = #hop.http_version,
+      hl = "CurliteStatusLine",
+    })
+    table.insert(marks, {
+      line = #lines - 1,
+      col = #hop.http_version + 1,
+      end_col = -1,
+      hl = status_hl(hop.status),
+    })
 
     local names = vim.deepcopy(hop.header_order)
     table.sort(names, function(a, b)
@@ -193,7 +226,8 @@ local function render_all(result)
   if cfg.response.show_request and req then
     local reqline = ("%s %s"):format(req.method, req.url)
     table.insert(lines, reqline)
-    table.insert(marks, { line = 0, col = 0, end_col = #req.method, hl = "Keyword" })
+    table.insert(marks, { line = 0, col = 0, end_col = #req.method, hl = "CurliteMethod" })
+    table.insert(marks, { line = 0, col = #req.method + 1, end_col = -1, hl = "CurliteUrl" })
 
     local names = vim.deepcopy(req.header_order or {})
     table.sort(names, function(a, b)
@@ -204,6 +238,7 @@ local function render_all(result)
         local text = ("%s: %s"):format(name, req.headers[name])
         table.insert(lines, text)
         table.insert(marks, { line = #lines - 1, col = 0, end_col = #name + 1, hl = "CurliteHeaderName" })
+        table.insert(marks, { line = #lines - 1, col = #name + 2, end_col = -1, hl = "CurliteHeaderValue" })
       end
     end
 
@@ -212,8 +247,8 @@ local function render_all(result)
       vim.list_extend(lines, vim.split(result.command.sent_body, "\n", { plain = true }))
     end
     table.insert(lines, "")
-    table.insert(lines, ("%s"):format(("─"):rep(40)))
-    table.insert(marks, { line = #lines - 1, col = 0, end_col = -1, hl = "Comment" })
+    table.insert(lines, ("─"):rep(40))
+    table.insert(marks, { line = #lines - 1, col = 0, end_col = -1, hl = "CurliteRule" })
     table.insert(lines, "")
   end
 
@@ -241,15 +276,28 @@ local function render_stats(result)
   end
   local s = resp.stats or {}
 
-  local function row(label, value)
-    table.insert(lines, ("  %-22s %s"):format(label, value))
+  -- Labels are padded into a fixed column so the values line up; the mark
+  -- offsets below depend on that width.
+  local LABEL_WIDTH = 22
+  local VALUE_COL = 2 + LABEL_WIDTH + 1
+
+  ---@param label string
+  ---@param value string
+  ---@param hl string|nil  overrides CurliteValue for this row
+  local function row(label, value, hl)
+    table.insert(lines, ("  %-" .. LABEL_WIDTH .. "s %s"):format(label, value))
+    local line = #lines - 1
+    table.insert(marks, { line = line, col = 2, end_col = 2 + #label, hl = "CurliteLabel" })
+    table.insert(marks, { line = line, col = VALUE_COL, end_col = -1, hl = hl or "CurliteValue" })
+    return line
   end
+
   local function section(title)
     if #lines > 0 then
       table.insert(lines, "")
     end
     table.insert(lines, title)
-    table.insert(marks, { line = #lines - 1, col = 0, end_col = #title, hl = "Title" })
+    table.insert(marks, { line = #lines - 1, col = 0, end_col = #title, hl = "CurliteSection" })
   end
 
   local function ms(v)
@@ -257,12 +305,11 @@ local function render_stats(result)
   end
 
   section("Response")
-  row("Status", ("%d %s"):format(resp.status, resp.status_text))
-  marks[#marks + 1] =
-    { line = #lines - 1, col = 25, end_col = -1, hl = status_hl(resp.status) }
+  row("Status", ("%d %s"):format(resp.status, resp.status_text), status_hl(resp.status))
   row("HTTP version", resp.http_version ~= "" and resp.http_version or (s.http_version or "—"))
+  row("Method", result.request and result.request.method or s.method or "—")
   row("Content type", resp.headers["Content-Type"] or s.content_type or "—")
-  row("URL", s.url_effective or result.request.url)
+  row("URL", s.url_effective or result.request.url, "CurliteUrl")
   if (s.num_redirects or 0) > 0 then
     row("Redirects", tostring(s.num_redirects))
   end
@@ -276,8 +323,7 @@ local function render_stats(result)
   row("Request sent", ms(s.time_pretransfer and s.time_pretransfer - (s.time_appconnect or s.time_connect or 0)))
   row("Waiting (TTFB)", ms(s.time_starttransfer and s.time_starttransfer - (s.time_pretransfer or 0)))
   row("Download", ms(s.time_total and s.time_total - (s.time_starttransfer or 0)))
-  row("Total", util.human_time(resp.duration_ms))
-  marks[#marks + 1] = { line = #lines - 1, col = 0, end_col = -1, hl = "Bold" }
+  row("Total", util.human_time(resp.duration_ms), "CurliteTotal")
 
   section("Size")
   row("Response body", util.human_size(math.floor(s.size_download or #resp.body)))
@@ -295,7 +341,11 @@ local function render_stats(result)
   row("Local port", tostring(s.local_port or "—"))
   row("Connections", tostring(s.num_connects or 0))
   if s.ssl_verify_result ~= nil then
-    row("TLS verify", s.ssl_verify_result == 0 and "ok" or ("failed (%s)"):format(s.ssl_verify_result))
+    row(
+      "TLS verify",
+      s.ssl_verify_result == 0 and "ok" or ("failed (%s)"):format(s.ssl_verify_result),
+      s.ssl_verify_result == 0 and "CurliteSuccess" or "CurliteServerError"
+    )
   end
 
   if next(resp.cookies or {}) then
@@ -330,9 +380,16 @@ local function render_script(result)
     return { "(no script output)" }, marks
   end
 
+  local function section(title, hl)
+    if #lines > 0 then
+      table.insert(lines, "")
+    end
+    table.insert(lines, title)
+    table.insert(marks, { line = #lines - 1, col = 0, end_col = -1, hl = hl or "CurliteSection" })
+  end
+
   if sr.error then
-    table.insert(lines, "Error")
-    table.insert(marks, { line = 0, col = 0, end_col = 5, hl = "Title" })
+    section("Error", "CurliteTestFail")
     for _, l in ipairs(vim.split(sr.error, "\n", { plain = true })) do
       table.insert(lines, "  " .. l)
       table.insert(marks, { line = #lines - 1, col = 0, end_col = -1, hl = "CurliteTestFail" })
@@ -340,45 +397,50 @@ local function render_script(result)
   end
 
   if #sr.logs > 0 then
-    if #lines > 0 then
-      table.insert(lines, "")
-    end
-    table.insert(lines, "Log")
-    table.insert(marks, { line = #lines - 1, col = 0, end_col = 3, hl = "Title" })
+    section("Log")
     for _, log in ipairs(sr.logs) do
       for _, l in ipairs(vim.split(log, "\n", { plain = true })) do
         table.insert(lines, "  " .. l)
+        table.insert(marks, { line = #lines - 1, col = 2, end_col = -1, hl = "CurliteLogLine" })
       end
     end
   end
 
   if #sr.tests > 0 then
     local passed, failed = scripts.tally(sr)
+    local tally = ("%d passed, %d failed"):format(passed, failed)
     if #lines > 0 then
       table.insert(lines, "")
     end
-    local title = ("Tests  %d passed, %d failed"):format(passed, failed)
-    table.insert(lines, title)
-    table.insert(marks, { line = #lines - 1, col = 0, end_col = 5, hl = "Title" })
+    table.insert(lines, ("Tests  %s"):format(tally))
+    table.insert(marks, { line = #lines - 1, col = 0, end_col = 5, hl = "CurliteSection" })
     table.insert(marks, {
       line = #lines - 1,
       col = 7,
       end_col = -1,
       hl = failed > 0 and "CurliteTestFail" or "CurliteTestPass",
     })
+
     for _, test in ipairs(sr.tests) do
       local icon = test.ok and "✓" or "✗"
       table.insert(lines, ("  %s %s"):format(icon, test.name))
+      local line = #lines - 1
       table.insert(marks, {
-        line = #lines - 1,
+        line = line,
         col = 2,
         end_col = 2 + #icon,
         hl = test.ok and "CurliteTestPass" or "CurliteTestFail",
       })
+      table.insert(marks, {
+        line = line,
+        col = 3 + #icon,
+        end_col = -1,
+        hl = test.ok and "CurliteTestName" or "CurliteTestFail",
+      })
       if test.message then
         for _, l in ipairs(vim.split(test.message, "\n", { plain = true })) do
           table.insert(lines, ("      %s"):format(l))
-          table.insert(marks, { line = #lines - 1, col = 0, end_col = -1, hl = "Comment" })
+          table.insert(marks, { line = #lines - 1, col = 0, end_col = -1, hl = "CurliteTestDetail" })
         end
       end
     end
@@ -561,12 +623,25 @@ local function draw(result, pane)
   set_lines(buf, lines)
   vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
 
+  -- `end_col = -1` in a renderer means "to the end of the line". Resolve it
+  -- against the actual text rather than spilling onto the next row: an extmark
+  -- whose end runs past the last line is rejected, and when that rejection was
+  -- swallowed every such mark disappeared silently.
   for _, mark in ipairs(marks or {}) do
-    pcall(vim.api.nvim_buf_set_extmark, buf, NS, mark.line, mark.col, {
-      end_col = mark.end_col == -1 and nil or mark.end_col,
-      end_row = mark.end_col == -1 and mark.line + 1 or nil,
-      hl_group = mark.hl,
-    })
+    local text = lines[mark.line + 1]
+    if text then
+      local end_col = mark.end_col
+      if end_col == nil or end_col < 0 or end_col > #text then
+        end_col = #text
+      end
+      local col = math.min(mark.col, #text)
+      if end_col > col then
+        vim.api.nvim_buf_set_extmark(buf, NS, mark.line, col, {
+          end_col = end_col,
+          hl_group = mark.hl,
+        })
+      end
+    end
   end
 
   -- Only the body pane gets a real filetype; the others are curlite's own

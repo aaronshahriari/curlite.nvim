@@ -93,8 +93,6 @@ M.defaults = {
     -- Move the cursor into the response window when it opens. False keeps you
     -- in the request buffer so you can fire the next one immediately.
     focus = false,
-    -- Keep the response window open between requests and reuse it.
-    reuse = true,
     -- Wrap long lines in the response.
     wrap = false,
     -- Show line numbers in the response.
@@ -108,7 +106,6 @@ M.defaults = {
       error = "",
       running = "",
       redirect = "",
-      warn = "",
     },
     -- Highlight groups. These are linked, not defined, so they follow your
     -- colorscheme; override with concrete groups if you want fixed colors.
@@ -171,7 +168,9 @@ M.defaults = {
     -- no `io`, `os.execute` or `loadstring`. Turn off if you script against
     -- your own helper modules.
     sandbox = true,
-    -- Milliseconds a single script may run before it is aborted.
+    -- Wall-clock budget for a single script block or `# @assert` expression,
+    -- in milliseconds. Scripts run on the main loop, so this is what stops a
+    -- runaway loop from hanging the editor. 0 disables the check.
     timeout = 5000,
   },
 
@@ -193,6 +192,7 @@ M.defaults = {
     copy_curl = "<leader>Ry",     -- yank the request as a curl command line
     paste_curl = "<leader>Rp",    -- convert a curl command in the clipboard
     inspect = "<leader>Ri",       -- show the fully-resolved request
+    hover = "K",                  -- show the same request preview as inspect
     next_request = "]r",
     prev_request = "[r",
     clear = "<leader>Rc",         -- clear inline status + close the window

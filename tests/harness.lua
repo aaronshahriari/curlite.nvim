@@ -3,6 +3,11 @@
 
 vim.opt.runtimepath:prepend(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h"))
 
+-- `-u NONE` starts with both off, but every real user has them on, and the
+-- response panes rely on a filetype being highlighted.
+vim.cmd("filetype plugin indent on")
+vim.cmd("syntax enable")
+
 -- curlite reports errors through `vim.notify` regardless of its `notify`
 -- setting, which is right in the editor and noise here. Collect them instead,
 -- so a test can look at them but they don't interleave with the results.

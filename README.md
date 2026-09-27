@@ -94,6 +94,7 @@ Cursor anywhere in it, `<leader>Rs`. That's it.
 | `<leader>Re` | pick the environment |
 | `<leader>Rf` | jump to a request by name |
 | `<leader>Ri` | show the resolved request + its curl equivalent |
+| `K` | show the same resolved-request preview |
 | `<leader>Ry` | yank the request as a curl command |
 | `<leader>Rp` | turn a curl command in the clipboard into a request |
 | `<leader>Ro` | toggle the response window |
@@ -137,6 +138,15 @@ A run of three or more `#` separates requests, and whatever follows names one. T
 
 A file with no `###` at all still works — a method at column 0 after a blank line begins a new request.
 
+Guard a request that should never run accidentally by adding `[confirm]` to its title. Curlite shows the fully resolved request in a centered popup and requires `y` or `n`, followed by Enter, before continuing:
+
+```http
+### [confirm] Delete production user
+DELETE {{prod}}/users/42
+```
+
+`# @confirm` provides the same protection for an untitled request. Declining skips it without stopping a "send all" run.
+
 <details>
 <summary><b>Metadata</b> — <code># @key value</code> above a request</summary>
 
@@ -158,6 +168,7 @@ A file with no `###` at all still works — a method at column 0 after a blank l
 | `@resolve H:P:ADDR` / `@interface NAME` | pin a host / bind an interface |
 | `@retry N` / `@user USER:PASS` | |
 | `@graphql` | treat the body as a GraphQL query |
+| `@confirm` | show the resolved request and require confirmation before sending |
 | `@skip` | never send this one; a "send all" steps over it |
 | `@no-cookie-jar` | don't touch the shared jar |
 | `@curl ARGS` | raw curl flags, the escape hatch |

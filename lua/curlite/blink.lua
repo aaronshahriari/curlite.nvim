@@ -129,6 +129,7 @@ local METADATA = {
   { "retry", "retry this many times on a transient failure" },
   { "user", "credentials for curl's --user" },
   { "graphql", "treat the body as a GraphQL query" },
+  { "confirm", "show the resolved request and require confirmation" },
   { "skip", "never send this request" },
   { "no-cookie-jar", "don't read or write the shared cookie jar" },
   { "curl", "raw curl flags, appended verbatim" },

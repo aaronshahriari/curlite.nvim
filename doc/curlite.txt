@@ -152,6 +152,16 @@ request's name: >
 `# @name` does the same thing and wins if both are present. Names matter: they
 are how |curlite-request-variables| and |curlite-chaining| refer to a request.
 
+Add `[confirm]` anywhere in the separator title to guard a request that should
+not run accidentally. The marker is removed from the request name: >
+
+    ### [confirm] Delete production user
+    DELETE {{prod}}/users/42
+<
+Before sending, curlite shows the fully resolved request in a centered popup.
+Choose `y` or `n`, then press Enter. Declining skips the request without
+stopping a "send all" run. `# @confirm` provides the same behavior.
+
 The method is optional — a bare URL is a GET. A trailing `HTTP/1.1` is
 recognised and forces that protocol version.
 
@@ -233,6 +243,7 @@ or a YAML comment in a payload survives.
     @retry N            retry a transient failure N times
     @user USER:PASS     credentials, passed to curl's --user
     @graphql            treat the body as a GraphQL query
+    @confirm            show the request and require confirmation before send
     @skip               never send this request; a "send all" steps over it
     @no-cookie-jar      don't read or write the shared cookie jar
     @curl ARGS          raw curl flags, appended verbatim
@@ -677,6 +688,7 @@ Set buffer-locally in every `http` buffer:
     <leader>Ry      yank the request as a curl command line
     <leader>Rp      convert a curl command in the clipboard
     <leader>Ri      inspect the resolved request
+    K               preview the resolved request
     <leader>Rc      clear
     ]r  [r          next / previous request
 

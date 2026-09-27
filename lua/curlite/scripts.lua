@@ -234,6 +234,50 @@ local function build_scope(req, resp, result)
   return scope, control
 end
 
+--- Run `fn` under a wall-clock budget.
+---
+--- A script is ordinary Lua on the main loop, so `while true do end` in one
+--- would hang the editor with no way out. A count hook checks the clock every
+--- couple of thousand VM instructions and raises when the budget is gone.
+---
+--- The JIT has to come off for that to work: LuaJIT compiles a hot loop into a
+--- trace that never returns to the interpreter, so the count hook would never
+--- fire on the exact case it exists to catch. Scripts are small and run once
+--- per request, so interpreting them costs nothing worth measuring.
+---
+--- In sandbox mode a script cannot reach `debug` or `jit`, so it cannot undo
+--- any of this.
+---@param fn function
+---@param ms integer|nil  0 or nil disables the budget
+---@return boolean ok, any err
+local function with_timeout(fn, ms)
+  if not ms or ms <= 0 then
+    return pcall(fn)
+  end
+
+  local deadline = vim.uv.hrtime() + ms * 1e6
+  local jit_was_on = jit ~= nil and jit.status() or false
+  if jit_was_on then
+    jit.off()
+  end
+
+  debug.sethook(function()
+    if vim.uv.hrtime() > deadline then
+      debug.sethook()
+      error(("script exceeded scripts.timeout (%dms) -- runaway loop?"):format(ms), 0)
+    end
+  end, "", 2000)
+
+  local ok, err = pcall(fn)
+
+  debug.sethook()
+  if jit_was_on then
+    jit.on()
+  end
+
+  return ok, err
+end
+
 --- Run one script block.
 ---@param script curlite.Script
 ---@param req curlite.Request
@@ -260,7 +304,7 @@ local function run_one(script, req, resp, result)
     return
   end
 
-  local ok, err = pcall(chunk)
+  local ok, err = with_timeout(chunk, config.get().scripts.timeout)
   if not ok then
     if type(err) == "table" and err.curlite_control then
       -- skip/abort/exit already recorded their intent in `result`.
@@ -323,7 +367,7 @@ local function run_asserts(req, resp, result)
     if not chunk then
       table.insert(result.tests, { name = expr, ok = false, message = tostring(err) })
     else
-      local ok, value = pcall(chunk)
+      local ok, value = with_timeout(chunk, config.get().scripts.timeout)
       if not ok then
         table.insert(result.tests, { name = expr, ok = false, message = tostring(value) })
       elseif value then
