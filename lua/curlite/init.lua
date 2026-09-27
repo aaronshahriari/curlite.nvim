@@ -232,7 +232,29 @@ function M.inspect()
     lines = require("curlite.preview").lines(cmd, true)
   end
 
-  local buf, win = require("curlite.preview").open(lines, { title = " resolved request ", focus = true })
+  local width = 0
+  for _, line in ipairs(lines) do
+    width = math.max(width, vim.fn.strdisplaywidth(line))
+  end
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].filetype = "http"
+  vim.bo[buf].modifiable = false
+
+  local win_width = math.min(width + 4, vim.o.columns - 8)
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = win_width,
+    height = math.min(#lines + 1, vim.o.lines - 8),
+    row = math.floor(vim.o.lines * 0.15),
+    col = math.floor((vim.o.columns - win_width) / 2),
+    style = "minimal",
+    border = config.get().ui.float.border,
+    title = " resolved request ",
+    title_pos = "center",
+  })
+  vim.wo[win].wrap = false
   for _, key in ipairs({ "q", "<Esc>" }) do
     vim.keymap.set("n", key, function()
       pcall(vim.api.nvim_win_close, win, true)
@@ -638,6 +660,13 @@ local function register_autocmds()
     pattern = "*.http,*.rest",
     callback = function(args)
       ui.clear_inline(args.buf)
+    end,
+  })
+
+  vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+    group = group,
+    callback = function(args)
+      parser.invalidate(args.buf)
     end,
   })
 

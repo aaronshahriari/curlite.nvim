@@ -28,6 +28,16 @@ M.responses = {}
 ---@type table<string, string>
 M.prompt_answers = {}
 
+-- `{{$exec cmd}}` output, keyed by command, for the duration of one run.
+--
+-- The command shells out, which is slow and can be interactive -- `pass show`
+-- may want a GPG passphrase. A token fetched this way is typically referenced
+-- by every request in the file, so evaluating it per request meant a "send
+-- all" over thirty requests paid for thirty spawns, and thirty passphrase
+-- prompts. Once per run is both faster and what you meant.
+---@type table<string, string>
+M.exec_cache = {}
+
 local function rand_hex(n)
   local out = {}
   for i = 1, n do
@@ -206,8 +216,28 @@ M.dynamic = {
     if args == "" then
       return ""
     end
+
+    local cached = M.exec_cache[args]
+    if cached ~= nil then
+      return cached
+    end
+
     local out = vim.fn.system(args)
-    return (out:gsub("[\r\n]+$", ""))
+    if vim.v.shell_error ~= 0 then
+      -- A failed command would otherwise substitute its stderr, or nothing,
+      -- and the request would go out with a broken credential in it.
+      util.warn(
+        ("curlite: $exec `%s` exited with %d: %s"):format(
+          args,
+          vim.v.shell_error,
+          vim.trim(out ~= "" and out or "(no output)")
+        )
+      )
+    end
+
+    out = out:gsub("[\r\n]+$", "")
+    M.exec_cache[args] = out
+    return out
   end,
 }
 
@@ -415,6 +445,12 @@ function M.resolve_prompts(req, force)
   return true
 end
 
+--- Start a new run: one send, or one "send all". Clears the per-run
+--- `{{$exec}}` cache so a fresh send re-reads whatever it shells out to.
+function M.begin_run()
+  M.exec_cache = {}
+end
+
 --- Record a completed request/response pair so later requests can reference it.
 ---@param name string|nil
 ---@param request table
@@ -429,6 +465,7 @@ end
 function M.reset()
   M.responses = {}
   M.prompt_answers = {}
+  M.exec_cache = {}
 end
 
 return M

@@ -160,4 +160,45 @@ function M.stringify_keeps_integers(t)
   t.eq(util.stringify({ a = 1 }), '{"a":1}')
 end
 
+function M.exec_is_evaluated_once_per_run(t)
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local counter = dir .. "/count"
+  -- Each invocation appends a line, so the file length is the spawn count.
+  local cmd = ("sh -c 'echo x >> %s; echo token'"):format(counter)
+
+  vars.begin_run()
+  for _ = 1, 10 do
+    t.eq(vars.render(("{{$exec %s}}"):format(cmd), ctx()), "token")
+  end
+  t.eq(#(vim.fn.readfile(counter)), 1, "one run should shell out once")
+
+  -- A new run re-reads it: a token may have rotated since.
+  vars.begin_run()
+  vars.render(("{{$exec %s}}"):format(cmd), ctx())
+  t.eq(#(vim.fn.readfile(counter)), 2)
+  vars.reset()
+end
+
+function M.exec_failure_is_reported(t)
+  t.drain()
+  vars.begin_run()
+  vars.render("{{$exec exit 3}}", ctx())
+  vim.wait(200, function()
+    return false
+  end)
+  local warned = vim.tbl_filter(function(n)
+    return n.msg:find("$exec", 1, true) ~= nil
+  end, t.drain())
+  t.eq(#warned, 1, "a failing $exec must not pass silently")
+  t.match(warned[1].msg, "exited with 3")
+  vars.reset()
+end
+
+function M.exec_output_has_trailing_newlines_stripped(t)
+  vars.begin_run()
+  t.eq(vars.render("{{$exec printf 'abc\\n\\n'}}", ctx()), "abc")
+  vars.reset()
+end
+
 return M

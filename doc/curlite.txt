@@ -84,8 +84,8 @@ already in a Lua editor; the interpreter is free and the sandbox is one table.
 
 Optional:
 
-    jq                  prettier JSON, and the `/` filter in the response
-                        window
+    jq                  the `/` filter in the response window. Formatting
+                        does not need it
     blink.cmp           completion inside `.http` files
                         (|curlite-completion|)
     a treesitter `http` parser
@@ -407,7 +407,11 @@ DYNAMIC VARIABLES                                            *curlite-dynamic*
     {{$processEnv NAME}}        the same
     {{$dotenv NAME}}            from the nearest .env file
     {{$exec COMMAND}}           stdout of a shell command, trailing newline
-                                stripped
+                                stripped. Evaluated once per run -- a "send
+                                all" over thirty requests shells out once,
+                                not thirty times -- and re-read on the next
+                                send. A non-zero exit is reported rather
+                                than substituted.
 
 IntelliJ's spellings also work: `{{$random.integer(1, 100)}}`,
 `{{$random.uuid}}`, `{{$random.alphanumeric(8)}}`, `{{$random.float(0, 1)}}`,
@@ -644,10 +648,12 @@ Body ~
     it properly, `jq` can filter it, `gq` reflows it, and `Y` yanks exactly
     what the server sent.
 
-    JSON is pretty-printed by `jq` when it is installed and by a built-in Lua
-    formatter otherwise. The Lua one walks the source text rather than
-    decoding and re-encoding, so key order is preserved and a 64-bit id does
-    not round-trip through a double and come back as `1.2345678901235e+19`.
+    JSON is pretty-printed in pure Lua, without spawning anything. The
+    formatter walks the source text rather than decoding and re-encoding, so
+    key order is preserved and a 64-bit id does not round-trip through a
+    double and come back as `1.2345678901235e+19`. (`jq` was used here once
+    and measured slower at every body size: a process spawn costs more than
+    formatting anything under a megabyte.)
 
     A binary body (by Content-Type, or a NUL in the first kilobyte) is
     described rather than dumped into the buffer. Press `gs` to save it.
@@ -815,7 +821,7 @@ Set buffer-locally in every `http` buffer:
     <leader>Rs      send the request under the cursor
     <leader>Ra      send every request in the file
     <leader>Rr      replay the last request
-    <leader>Ro      toggle the response window
+    <leader>h       hide/show the response at its last split position
     <leader>Re      pick the environment
     <leader>Rf      jump to a request
     <leader>Ry      yank the request as a curl command line
@@ -918,13 +924,16 @@ The complete default table: >lua
         timeout = 5000,
       },
 
-      history = { size = 50 },
+      history = {
+        size = 50,
+        max_bytes = 16 * 1024 * 1024,
+      },
 
       keymaps = {
         send         = "<leader>Rs",
         send_all     = "<leader>Ra",
         replay       = "<leader>Rr",
-        toggle       = "<leader>Ro",
+        toggle       = "<leader>h",
         select_env   = "<leader>Re",
         pick_request = "<leader>Rf",
         copy_curl    = "<leader>Ry",
@@ -1115,7 +1124,18 @@ SCRIPTS                                               *curlite-config-scripts*
 EVERYTHING ELSE                                          *curlite-config-misc*
 
 `history.size` ~
-    Responses kept for `[` and `]`. `0` is unlimited, bounded only by memory.
+    Responses kept for `[` and `]`. `0` is unlimited.
+
+`history.max_bytes` ~
+    A byte ceiling on the ring, because a count alone is not a bound: fifty
+    250KB responses is a lot to hold for a feature you use occasionally.
+    Oldest entries are dropped until every retained body, header dump and
+    verbose trace fits. The newest response is always kept, however large.
+    `0` disables the check. Default 16MB.
+
+    Derived data is not kept either: the decoded body of every response but
+    the newest is dropped, since a chained `{{NAME.response.body.$.x}}` falls
+    back to decoding the text it still has.
 
 `notify` ~
     `"errors"` (default) — only failures.

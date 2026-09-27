@@ -31,6 +31,79 @@ M.history_index = 0 ---@type integer  1-based; 0 means "nothing yet"
 -- A live jq filter applied to the body pane, per history entry.
 local filter_expr = nil
 
+-- Formatting a body costs real time on a large response, and `render_body`
+-- runs on every pane switch, every history step and every redraw of the `all`
+-- pane. Memoise it per result.
+--
+-- Bounded, and deliberately small. Weak keys alone are not a bound: a result
+-- stays alive as long as it is in the history ring, so caching every one meant
+-- holding the split lines of fifty responses -- which cost more than the
+-- bodies themselves. You look at one or two responses at a time; caching more
+-- buys nothing.
+local BODY_CACHE_MAX = 4
+
+---@type table<table, { key: string, lines: string[], ft: string|nil, seq: integer }>
+local body_cache = setmetatable({}, { __mode = "k" })
+local body_cache_seq = 0
+
+---@param result table
+---@param entry { key: string, lines: string[], ft: string|nil }
+local function body_cache_put(result, entry)
+  body_cache_seq = body_cache_seq + 1
+  entry.seq = body_cache_seq
+  body_cache[result] = entry
+
+  local count, oldest, oldest_seq = 0, nil, math.huge
+  for key, value in pairs(body_cache) do
+    count = count + 1
+    if value.seq < oldest_seq then
+      oldest, oldest_seq = key, value.seq
+    end
+  end
+  if count > BODY_CACHE_MAX and oldest then
+    body_cache[oldest] = nil
+  end
+end
+
+-- What each pane's buffer currently holds. Cycling back to a pane you have
+-- already seen should cost nothing: the buffer still has the right text, and
+-- rewriting thirty thousand lines to produce the same result is pure waste.
+-- Values are weak, so a result dropped from the history ring is not pinned
+-- here -- and when it goes, the entry reads as nil and the pane redraws.
+---@type table<string, table>
+local drawn_result = setmetatable({}, { __mode = "v" })
+---@type table<string, string>
+local drawn_key = {}
+
+--- A cheap discriminator for "is this the same thing I last drew?".
+---
+--- Identity alone would be wrong: `show()` is public, and a caller that mutates
+--- a result and shows it again deserves to see the change. These fields cover
+--- every part of a result that can sensibly differ, and none of them costs more
+--- than reading a number.
+---@param result curlite.Result
+---@return string
+local function signature(result)
+  local resp = result.response
+  return table.concat({
+    filter_expr or "",
+    resp and resp.status or -1,
+    resp and #resp.body or -1,
+    resp and resp.duration_ms or -1,
+    resp and #resp.hops or -1,
+    result.error or "",
+    result.skipped and 1 or 0,
+    #((result.script or {}).tests or {}),
+    #((result.script or {}).logs or {}),
+  }, "\1")
+end
+
+-- Where a split response window was immediately before it was hidden. Floats
+-- and tabs keep their configured behaviour; ordinary splits are restored next
+-- to the same window, at the same edge and size.
+---@type { tab: integer, axis: "row"|"col", after: boolean, anchor: integer, root_edge: boolean, width: integer, height: integer }|nil
+local saved_split = nil
+
 local PANE_LABELS = {
   body = "Body",
   headers = "Headers",
@@ -146,31 +219,48 @@ local function render_body(result)
     return { result.error or "no response" }, nil
   end
 
-  local ctype = resp.headers["Content-Type"] or resp.headers["content-type"] or ""
+  local key = signature(result)
+  local cached = body_cache[result]
+  if cached and cached.key == key then
+    return cached.lines, cached.ft
+  end
+
+  -- `headers` is case-insensitive, so one spelling is enough.
+  local ctype = resp.headers["Content-Type"] or ""
+
+  local function remember(lines, ft)
+    body_cache_put(result, { key = key, lines = lines, ft = ft })
+    return lines, ft
+  end
 
   if resp.body == "" then
-    return { ("(empty body — %d %s)"):format(resp.status, resp.status_text) }, nil
+    return remember({ ("(empty body — %d %s)"):format(resp.status, resp.status_text) }, nil)
   end
 
   if format.is_binary(resp.body, ctype) then
-    return {
-      ("(binary response — %s, %s)"):format(ctype ~= "" and ctype or "unknown type", util.human_size(#resp.body)),
+    return remember({
+      ("(binary response — %s, %s)"):format(
+        ctype ~= "" and ctype or "unknown type",
+        util.human_size(#resp.body)
+      ),
       "",
       "Press `gs` to save it to a file.",
-    }, nil
+    }, nil)
   end
 
-  local body = resp.body
   if filter_expr and filter_expr ~= "" then
-    local filtered, err = format.jq(body, filter_expr)
+    local filtered, err = format.jq(resp.body, filter_expr)
     if filtered then
-      return vim.split(filtered, "\n", { plain = true }), "json"
+      return remember(vim.split(filtered, "\n", { plain = true }), "json")
     end
-    return { ("jq: %s"):format(err), "", "Press `/` to change the filter, `<Esc>` to clear it." }, nil
+    return remember(
+      { ("jq: %s"):format(err), "", "Press `/` to change the filter, `<Esc>` to clear it." },
+      nil
+    )
   end
 
-  local formatted, ft = format.body(body, ctype)
-  return vim.split(formatted, "\n", { plain = true }), ft
+  local formatted, ft = format.body(resp.body, ctype)
+  return remember(vim.split(formatted, "\n", { plain = true }), ft)
 end
 
 ---@param result curlite.Result
@@ -474,6 +564,111 @@ local function set_win_buf(win, buf)
   end
 end
 
+---@param node table
+---@param last boolean
+---@return integer|nil
+local function edge_leaf(node, last)
+  if node[1] == "leaf" then
+    return node[2]
+  end
+  local children = node[2]
+  local child = children[last and #children or 1]
+  return child and edge_leaf(child, last) or nil
+end
+
+---@param node table
+---@param target integer
+---@param root boolean
+---@return table|nil
+local function split_parent(node, target, root)
+  if node[1] == "leaf" then
+    return nil
+  end
+  local children = node[2]
+  for index, child in ipairs(children) do
+    if child[1] == "leaf" and child[2] == target then
+      local after = index > 1
+      local sibling = after and children[index - 1] or children[index + 1]
+      if not sibling then
+        return nil
+      end
+      return {
+        axis = node[1],
+        after = after,
+        anchor = edge_leaf(sibling, after),
+        root_edge = root,
+      }
+    end
+    local found = split_parent(child, target, false)
+    if found then
+      return found
+    end
+  end
+  return nil
+end
+
+---@return table|nil
+local function capture_split()
+  if not win_valid() then
+    return nil
+  end
+  local win = M.winid
+  if vim.api.nvim_win_get_config(win).relative ~= "" then
+    return nil
+  end
+  local tab = vim.api.nvim_win_get_tabpage(win)
+  if tab ~= vim.api.nvim_get_current_tabpage() then
+    return nil
+  end
+  local placement = split_parent(vim.fn.winlayout(), win, true)
+  if not placement or not placement.anchor then
+    return nil
+  end
+  placement.tab = tab
+  placement.width = vim.api.nvim_win_get_width(win)
+  placement.height = vim.api.nvim_win_get_height(win)
+  return placement
+end
+
+---@param buf integer
+---@return boolean
+local function restore_split(buf)
+  local placement = saved_split
+  if not placement or placement.tab ~= vim.api.nvim_get_current_tabpage() then
+    return false
+  end
+
+  local vertical = placement.axis == "row"
+  local command
+  if placement.root_edge then
+    command = placement.after and "botright " or "topleft "
+  else
+    if not vim.api.nvim_win_is_valid(placement.anchor)
+      or vim.api.nvim_win_get_tabpage(placement.anchor) ~= placement.tab
+    then
+      saved_split = nil
+      return false
+    end
+    vim.api.nvim_set_current_win(placement.anchor)
+    command = placement.after and "rightbelow " or "leftabove "
+  end
+  command = command .. (vertical and "vsplit" or "split")
+
+  local ok = pcall(vim.cmd, command)
+  if not ok then
+    saved_split = nil
+    return false
+  end
+  M.winid = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(M.winid, buf)
+  if vertical then
+    pcall(vim.api.nvim_win_set_width, M.winid, placement.width)
+  else
+    pcall(vim.api.nvim_win_set_height, M.winid, placement.height)
+  end
+  return true
+end
+
 ---@param buf integer
 local function open_window(buf)
   local cfg = config.get().ui
@@ -496,21 +691,23 @@ local function open_window(buf)
     M.winid = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(M.winid, buf)
   else
-    local cmd = ({
-      right = "botright vsplit",
-      left = "topleft vsplit",
-      below = "botright split",
-      above = "topleft split",
-    })[cfg.display] or "botright vsplit"
-    vim.cmd(cmd)
-    M.winid = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(M.winid, buf)
-    if cfg.display == "right" or cfg.display == "left" then
-      if cfg.width > 0 then
-        vim.api.nvim_win_set_width(M.winid, cfg.width)
+    if not restore_split(buf) then
+      local cmd = ({
+        right = "botright vsplit",
+        left = "topleft vsplit",
+        below = "botright split",
+        above = "topleft split",
+      })[cfg.display] or "botright vsplit"
+      vim.cmd(cmd)
+      M.winid = vim.api.nvim_get_current_win()
+      vim.api.nvim_win_set_buf(M.winid, buf)
+      if cfg.display == "right" or cfg.display == "left" then
+        if cfg.width > 0 then
+          vim.api.nvim_win_set_width(M.winid, cfg.width)
+        end
+      elseif cfg.height > 0 then
+        vim.api.nvim_win_set_height(M.winid, cfg.height)
       end
-    elseif cfg.height > 0 then
-      vim.api.nvim_win_set_height(M.winid, cfg.height)
     end
   end
 
@@ -600,6 +797,12 @@ end
 ---@param pane string
 local function draw(result, pane)
   local buf = pane_buffer(pane)
+
+  local key = signature(result)
+  if drawn_result[pane] == result and drawn_key[pane] == key then
+    return buf
+  end
+
   local lines, marks, ft
 
   if pane == "body" then
@@ -657,7 +860,58 @@ local function draw(result, pane)
     vim.bo[buf].filetype = want_ft
   end
 
+  drawn_result[pane] = result
+  drawn_key[pane] = key
+
   return buf
+end
+
+--- Roughly what a history entry costs to keep: the strings that scale with
+--- the response. Everything else is a handful of numbers.
+---@param result curlite.Result
+---@return integer
+local function entry_bytes(result)
+  local resp = result.response
+  if not resp then
+    return 0
+  end
+  return #(resp.body or "") + #(resp.verbose or "") + #(resp.raw_headers or "")
+end
+
+--- Trim the history ring to both its limits: a count and a byte budget.
+---
+--- `response.json` is dropped from every entry but the newest. It is derived
+--- data -- `request_variable` and the panes both fall back to decoding the
+--- body -- and on a large JSON response the decoded table costs several times
+--- what the text does, so keeping fifty of them dwarfs everything else here.
+local function trim_history()
+  local cfg = config.get().history
+
+  local limit = cfg.size or 0
+  while limit > 0 and #M.history > limit do
+    table.remove(M.history, 1)
+  end
+
+  for i = 1, #M.history - 1 do
+    local resp = M.history[i].response
+    if resp then
+      resp.json = nil
+    end
+  end
+
+  local budget = cfg.max_bytes or 0
+  if budget > 0 then
+    local total = 0
+    for _, entry in ipairs(M.history) do
+      total = total + entry_bytes(entry)
+    end
+    -- Always keep the newest, however large: dropping what the user just
+    -- asked for would be absurd.
+    while #M.history > 1 and total > budget do
+      total = total - entry_bytes(M.history[1])
+      table.remove(M.history, 1)
+    end
+  end
 end
 
 --- Show a result, opening or reusing the response window.
@@ -669,10 +923,7 @@ function M.show(result, opts)
 
   if opts.push ~= false then
     table.insert(M.history, result)
-    local limit = config.get().history.size
-    while limit > 0 and #M.history > limit do
-      table.remove(M.history, 1)
-    end
+    trim_history()
     M.history_index = #M.history
     filter_expr = nil
   end
@@ -748,10 +999,13 @@ end
 ---@param req curlite.Request
 function M.show_pending(req)
   local cfg = config.get().ui
-  local buf = pane_buffer(M.pane or cfg.default_pane)
+  local pane = M.pane or cfg.default_pane
+  local buf = pane_buffer(pane)
   set_lines(buf, { ("%s %s"):format(req.method, req.url), "", "sending..." })
   vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
   vim.bo[buf].filetype = ""
+  -- This pane no longer shows what `draw` last put there.
+  drawn_result[pane], drawn_key[pane] = nil, nil
 
   if not win_valid() then
     open_window(buf)
@@ -769,6 +1023,7 @@ end
 
 function M.close()
   if win_valid() then
+    saved_split = capture_split()
     vim.api.nvim_win_close(M.winid, true)
   end
   M.winid = nil
@@ -998,12 +1253,16 @@ end
 --- Drop every buffer and window. Used by `:CurliteClear`.
 function M.reset()
   M.close()
+  saved_split = nil
   for _, buf in pairs(buffers) do
     if vim.api.nvim_buf_is_valid(buf) then
       vim.api.nvim_buf_delete(buf, { force = true })
     end
   end
   buffers = {}
+  body_cache = setmetatable({}, { __mode = "k" })
+  drawn_result = setmetatable({}, { __mode = "v" })
+  drawn_key = {}
   M.history = {}
   M.history_index = 0
   filter_expr = nil

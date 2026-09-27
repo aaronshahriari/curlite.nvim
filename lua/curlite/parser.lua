@@ -570,27 +570,86 @@ function M.duplicate_names(doc)
   return out
 end
 
---- Parse a buffer.
+-- Parsed documents, keyed by buffer and invalidated by `changedtick`.
+--
+-- `parse_buffer` is on several hot paths at once: every send, every `]r`, every
+-- `# @run` lookup, and -- worst -- every keystroke inside `{{ }}` while the
+-- completion source is active. Re-parsing a few hundred lines each time is
+-- pure waste when the buffer has not changed since.
+---@type table<integer, { tick: integer, doc: curlite.Document }>
+local buffer_cache = {}
+
+--- Parse a buffer, reusing the last parse while the buffer is unchanged.
+---
+--- The returned document is shared. Callers must treat it as read-only --
+--- everything downstream (`render_request`, `curl.build`) already deep-copies
+--- before it mutates.
 ---@param bufnr integer|nil  defaults to the current buffer
 ---@return curlite.Document
 function M.parse_buffer(bufnr)
   bufnr = (bufnr == nil or bufnr == 0) and vim.api.nvim_get_current_buf() or bufnr
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return { requests = {}, variables = {}, var_lines = {}, imports = {} }
+  end
+
+  local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+  local cached = buffer_cache[bufnr]
+  if cached and cached.tick == tick then
+    return cached.doc
+  end
+
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local name = vim.api.nvim_buf_get_name(bufnr)
-  return M.parse(lines, name ~= "" and name or nil)
+  local doc = M.parse(lines, name ~= "" and name or nil)
+
+  buffer_cache[bufnr] = { tick = tick, doc = doc }
+  return doc
 end
 
---- Parse a file from disk (used by `# @import`).
+--- Forget a buffer's cached parse. Called when a buffer is wiped; passing no
+--- argument clears everything.
+---@param bufnr integer|nil
+function M.invalidate(bufnr)
+  if bufnr then
+    buffer_cache[bufnr] = nil
+  else
+    buffer_cache = {}
+    file_cache = {}
+  end
+end
+
+-- Parsed files, keyed by path, invalidated by size and mtime. `# @import`
+-- resolution walks these on every `# @run`, and an imported file is usually
+-- shared by many requests.
+---@type table<string, { sig: string, doc: curlite.Document }>
+local file_cache = {}
+
+--- Parse a file from disk (used by `# @import` and `:CurliteRun <file>`).
+---
+--- Like `parse_buffer`, the returned document is shared and must be treated as
+--- read-only.
 ---@param path string
 ---@return curlite.Document|nil, string|nil error
 function M.parse_file(path)
+  local st = vim.uv.fs_stat(path)
+  local sig = st and ("%d:%d:%d"):format(st.size, st.mtime.sec, st.mtime.nsec) or ""
+
+  local cached = file_cache[path]
+  if cached and cached.sig == sig and sig ~= "" then
+    return cached.doc
+  end
+
   local fd = io.open(path, "r")
   if not fd then
+    file_cache[path] = nil
     return nil, ("cannot read %s"):format(path)
   end
   local content = fd:read("*a")
   fd:close()
-  return M.parse(vim.split(content, "\n", { plain = true }), path)
+
+  local doc = M.parse(vim.split(content, "\n", { plain = true }), path)
+  file_cache[path] = { sig = sig, doc = doc }
+  return doc
 end
 
 --- The request whose line range contains `line` (1-indexed). When the cursor

@@ -46,9 +46,12 @@ end
 local function check_optional()
   if vim.fn.executable("jq") == 1 then
     local v = vim.system({ "jq", "--version" }, { text = true }):wait()
-    vim.health.ok(("jq %s — used for JSON formatting and the `/` filter"):format(vim.trim(v.stdout or "")))
+    vim.health.ok(("jq %s — powers the `/` filter in the response window"):format(vim.trim(v.stdout or "")))
   else
-    vim.health.info("jq not found — JSON is formatted by the built-in Lua formatter, and the `/` filter in the response window is unavailable")
+    vim.health.info(
+      "jq not found — the `/` filter in the response window is unavailable. "
+        .. "JSON formatting does not need it."
+    )
   end
 end
 

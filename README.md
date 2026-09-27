@@ -48,7 +48,7 @@ There is no companion binary, no language server and no Node. `curl` is the only
 
 - Neovim 0.10+
 - `curl` (7.75+ for the Stats pane; older still works)
-- Optional: [`jq`](https://jqlang.github.io/jq/) (prettier JSON and the `/` filter), [blink.cmp](https://github.com/Saghen/blink.cmp) (completion), a treesitter `http` parser (curlite ships a syntax file and uses it when there isn't one), [lualine.nvim](https://github.com/nvim-lualine/lualine.nvim)
+- Optional: [`jq`](https://jqlang.github.io/jq/) (the `/` filter; formatting doesn't need it), [blink.cmp](https://github.com/Saghen/blink.cmp) (completion), a treesitter `http` parser (curlite ships a syntax file and uses it when there isn't one), [lualine.nvim](https://github.com/nvim-lualine/lualine.nvim)
 
 `:checkhealth curlite` reports what's available.
 
@@ -97,7 +97,7 @@ Cursor anywhere in it, `<leader>Rs`. That's it.
 | `K` | show the same resolved-request preview |
 | `<leader>Ry` | yank the request as a curl command |
 | `<leader>Rp` | turn a curl command in the clipboard into a request |
-| `<leader>Ro` | toggle the response window |
+| `<leader>h` | hide/show the response at its last split position |
 | `]r` `[r` | next / previous request |
 
 In the response window: `H`/`L` cycle panes, `1`–`6` jump, `[`/`]` walk the history, `/` filters JSON with jq, `gd` jumps back to the request, `Y` yanks the body, `gs` saves it, `R` re-sends, `q` closes.
@@ -192,7 +192,7 @@ An unresolvable name means the request is **refused**, not sent with a literal `
 {{$randomInt 1 100}}  {{$randomAlphaNumeric 16}}  {{$randomHex 16}}
 {{$randomEmail}}  {{$randomFirstName}}  {{$randomLastName}}  {{$randomFullName}}
 {{$env.NAME}}  {{$processEnv NAME}}  {{$dotenv NAME}}
-{{$exec pass show api/example/token}}
+{{$exec pass show api/example/token}}   evaluated once per run, not per request
 ```
 
 IntelliJ's spellings work too: `{{$random.integer(1, 100)}}`, `{{$random.uuid}}`, `{{$random.alphanumeric(8)}}`, `{{$random.float(0, 1)}}`, `{{$random.hexadecimal(12)}}`, `{{$random.email}}`.
@@ -384,7 +384,10 @@ require("curlite").setup({
     timeout = 5000,                        -- ms; stops a runaway loop. 0 disables
   },
 
-  history = { size = 50 },                 -- responses kept for [ and ]. 0 = all
+  history = {
+    size = 50,                             -- responses kept for [ and ]. 0 = all
+    max_bytes = 16 * 1024 * 1024,          -- ...and a byte ceiling. 0 disables
+  },
 
   -- Buffer-local, in every .http buffer. Set one to false to drop it,
   -- or keymaps = false to bind everything yourself.
@@ -392,7 +395,7 @@ require("curlite").setup({
     send         = "<leader>Rs",
     send_all     = "<leader>Ra",
     replay       = "<leader>Rr",
-    toggle       = "<leader>Ro",
+    toggle       = "<leader>h",
     select_env   = "<leader>Re",
     pick_request = "<leader>Rf",
     copy_curl    = "<leader>Ry",

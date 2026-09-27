@@ -173,6 +173,14 @@ end
 ---@return integer|nil job_id  nil when nothing was spawned
 function M.send(raw, opts)
   opts = opts or {}
+
+  -- A run is one send, or one "send all", or one `# @run` chain. Marking it
+  -- here is what lets `{{$exec}}` shell out once for the whole thing.
+  if not opts._in_run then
+    opts = vim.tbl_extend("force", opts, { _in_run = true })
+    variables.begin_run()
+  end
+
   local cfg = config.get()
 
   local function finish(result)
@@ -229,6 +237,7 @@ function M.send(raw, opts)
       M.send_sequence(pending, {
         bufnr = opts.bufnr,
         _chain = next_chain,
+        _in_run = true,
         on_each = opts.on_dependency,
         on_finish = function(results)
           -- An aborted or failed dependency means this request should not run.
@@ -420,6 +429,11 @@ end
 ---@param opts { bufnr: integer|nil, on_each: fun(result: curlite.Result, index: integer)|nil, on_finish: fun(results: curlite.Result[])|nil, stop_on_error: boolean|nil }|nil
 function M.send_sequence(requests, opts)
   opts = opts or {}
+  if not opts._in_run then
+    opts = vim.tbl_extend("force", opts, { _in_run = true })
+    variables.begin_run()
+  end
+
   local results = {}
   local index = 0
 
@@ -436,6 +450,7 @@ function M.send_sequence(requests, opts)
     M.send(req, {
       bufnr = opts.bufnr,
       _chain = opts._chain,
+      _in_run = true,
       on_done = function(result)
         table.insert(results, result)
         if opts.on_each then

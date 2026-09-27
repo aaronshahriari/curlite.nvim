@@ -176,8 +176,14 @@ M.defaults = {
 
   history = {
     -- Responses kept in the in-memory ring, browsable with `[` and `]` in the
-    -- response window. 0 = unlimited (bounded only by memory).
+    -- response window. 0 = unlimited.
     size = 50,
+    -- A second, byte-based ceiling on the ring, because a count alone is not a
+    -- bound: fifty 250KB responses is a lot of memory to hold for a feature
+    -- you use occasionally. Oldest entries are dropped until the total of
+    -- every retained body, header dump and verbose trace fits. The newest
+    -- response is always kept, however large. 0 disables the check.
+    max_bytes = 16 * 1024 * 1024,
   },
 
   -- Buffer-local keymaps applied to every `filetypes` buffer. Set any to
@@ -186,7 +192,7 @@ M.defaults = {
     send = "<leader>Rs",          -- send the request under the cursor
     send_all = "<leader>Ra",      -- send every request in the file
     replay = "<leader>Rr",        -- replay the last request
-    toggle = "<leader>Ro",        -- toggle the response window
+    toggle = "<leader>h",         -- hide/show the response at its last split position
     select_env = "<leader>Re",    -- pick the environment
     pick_request = "<leader>Rf",  -- jump to a request in this file
     copy_curl = "<leader>Ry",     -- yank the request as a curl command line

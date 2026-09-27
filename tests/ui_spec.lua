@@ -322,6 +322,37 @@ function M.history_navigation_clamps(t)
   ui.reset()
 end
 
+function M.toggle_restores_a_rearranged_split(t)
+  local config = require("curlite.config")
+  local cfg = config.get().ui
+  local saved = { display = cfg.display, width = cfg.width, focus = cfg.focus }
+  cfg.display, cfg.width, cfg.focus = "right", 24, false
+
+  ui.reset()
+  local request_win = vim.api.nvim_get_current_win()
+  ui.show(fake(), { pane = "body", push = true })
+  local response_win = ui.winid
+  vim.api.nvim_set_current_win(response_win)
+  vim.cmd("wincmd H")
+  vim.api.nvim_win_set_width(response_win, 31)
+  vim.api.nvim_set_current_win(request_win)
+
+  ui.toggle()
+  t.falsy(ui.winid, "the first toggle should hide the response")
+  ui.toggle()
+
+  t.truthy(ui.winid and vim.api.nvim_win_is_valid(ui.winid))
+  t.eq(vim.api.nvim_win_get_position(ui.winid)[2], 0, "the response should return on the left")
+  t.eq(vim.api.nvim_win_get_width(ui.winid), 31, "the rearranged width should be restored")
+
+  ui.reset()
+  cfg.display, cfg.width, cfg.focus = saved.display, saved.width, saved.focus
+end
+
+function M.toggle_defaults_to_leader_h(t)
+  t.eq(require("curlite.config").defaults.keymaps.toggle, "<leader>h")
+end
+
 function M.binary_body_is_described_not_dumped(t)
   local r = fake()
   r.response.body = "\137PNG\r\n\26\n\0\0\0"
@@ -398,6 +429,42 @@ function M.highlight_groups_are_links_so_a_colorscheme_wins(t)
     local hl = vim.api.nvim_get_hl(0, { name = name })
     t.truthy(next(hl) ~= nil, name .. " is not defined")
   end
+end
+
+function M.a_mutated_result_is_redrawn(t)
+  -- Panes cache what they last drew. Identity is not enough to key that on:
+  -- `show()` is public, and a caller that changes a result and shows it again
+  -- must see the change.
+  local r = fake()
+  local first = render("body", r)
+  t.match(table.concat(first.lines, "\n"), '"id": 7')
+
+  r.response.body = '{\n  "id": 99\n}'
+  r.response.json = { id = 99 }
+  local second = render("body", r)
+  t.match(table.concat(second.lines, "\n"), '"id": 99')
+
+  r.response.status = 500
+  r.response.status_text = "Internal Server Error"
+  t.truthy(render("stats", r).groups.CurliteServerError)
+  ui.close()
+end
+
+function M.redrawing_the_same_result_reuses_the_buffer(t)
+  -- ...and when nothing has changed, the pane must not rewrite its lines.
+  local r = fake()
+  render("body", r)
+  local buf = vim.api.nvim_win_get_buf(ui.winid)
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  for _ = 1, 5 do
+    render("body", r)
+  end
+  t.eq(
+    vim.api.nvim_buf_get_changedtick(buf),
+    tick,
+    "an unchanged pane should not be rewritten"
+  )
+  ui.close()
 end
 
 return M
