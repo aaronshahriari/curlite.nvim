@@ -19,10 +19,31 @@ local did_setup = false
 
 --- ----------------------------------------------------------------- helpers
 
+-- Buffers already warned about a given duplicate name, so the warning shows
+-- once rather than on every send.
+---@type table<string, boolean>
+local warned_duplicates = {}
+
 ---@param bufnr integer|nil
 ---@return curlite.Document
 local function document(bufnr)
-  return parser.parse_buffer(bufnr)
+  local doc = parser.parse_buffer(bufnr)
+
+  local dupes = parser.duplicate_names(doc)
+  if #dupes > 0 then
+    local key = ("%s:%s"):format(doc.source or tostring(bufnr), table.concat(dupes, ","))
+    if not warned_duplicates[key] then
+      warned_duplicates[key] = true
+      util.warn(
+        ("curlite: duplicate request name%s in this file: %s — `# @run` and `{{name.response...}}` can't tell them apart"):format(
+          #dupes == 1 and "" or "s",
+          table.concat(dupes, ", ")
+        )
+      )
+    end
+  end
+
+  return doc
 end
 
 ---@return curlite.Request|nil, curlite.Document

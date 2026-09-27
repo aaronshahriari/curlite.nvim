@@ -238,4 +238,28 @@ function M.missing_blank_line_before_body_is_forgiving(t)
   t.eq(doc.requests[1].body, '{"a":1}')
 end
 
+function M.duplicate_names_are_reported(t)
+  local doc = parse([[
+### LOGIN
+POST https://x.dev/a
+
+### OTHER
+GET https://x.dev/b
+
+### LOGIN
+POST https://x.dev/c
+]])
+  t.eq(parser.duplicate_names(doc), { "LOGIN" })
+end
+
+function M.unique_names_report_nothing(t)
+  local doc = parse("### A\nGET https://x.dev/a\n\n### B\nGET https://x.dev/b\n")
+  t.eq(parser.duplicate_names(doc), {})
+end
+
+function M.unnamed_requests_are_not_duplicates(t)
+  local doc = parse("GET https://x.dev/a\n\nGET https://x.dev/b\n")
+  t.eq(parser.duplicate_names(doc), {})
+end
+
 return M

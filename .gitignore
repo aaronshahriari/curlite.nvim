@@ -21,5 +21,6 @@ http-client.private.env.json
 scratch.http
 scratch.rest
 
-# Written by the demo's SAVE_TO_DISK request
+# Written by the demo's SAVE_TO_DISK requests
 demo/last-response.json
+demo/neovim-repo.json

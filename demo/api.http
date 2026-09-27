@@ -1,11 +1,269 @@
-# A tour of everything curlite understands. Every request here runs against
-# httpbin.org, so you can send them as-is.
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  curlite.nvim — open this file and start pressing keys.                  ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
 #
-# Set the environment with  <leader>Re  (or `:Curlite env`) -- the definitions
-# live in demo/http-client.env.json next to this file.
+#   <leader>Rs   send the request under the cursor
+#   <leader>Ra   send every request in this file
+#   <leader>Ri   show the resolved request + the curl line it becomes
+#   <leader>Re   switch environment (only PART 2 needs one)
+#   ]r  [r       jump between requests
 #
-# Send the request under the cursor with  <leader>Rs
-# Send every request in the file with     <leader>Ra
+#   In the response window: H/L or 1-6 cycle panes, [ / ] walk the history,
+#   / filters JSON with jq, gd jumps back here, Y yanks the body, q closes.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# PART 1 · REAL PUBLIC APIS
+#
+# Absolute URLs, no keys, no environment needed. Every one of these was
+# reachable when this file was written. Start at the top and work down.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+### ZEN
+# The simplest thing that can work. Returns one line of text/plain, so the
+# Body pane shows it raw rather than pretty-printing it.
+GET https://api.github.com/zen
+
+
+### MY_IP
+# A two-key JSON object. Good first look at the Stats pane (`4`): DNS, TLS
+# handshake, time-to-first-byte and download, broken out separately.
+GET https://api.ipify.org?format=json
+
+
+### CAT_FACT
+GET https://catfact.ninja/fact
+Accept: application/json
+
+# @assert status == 200
+# @assert #json.fact > 0
+
+
+### NEOVIM_REPO
+# A big nested document — this is the one to try the jq filter on. Press `/`
+# in the response window and enter, say:
+#     .stargazers_count
+#     {name, stars: .stargazers_count, lang: .language}
+#     .owner
+# <Esc> clears the filter.
+GET https://api.github.com/repos/neovim/neovim
+Accept: application/vnd.github+json
+
+# @assert status == 200
+# @assert json.name == "neovim"
+
+
+### RICK
+# Nested objects and arrays.
+GET https://rickandmortyapi.com/api/character/1
+Accept: application/json
+
+
+### WEATHER
+# Query parameters split one per line. Everything from the second line on is
+# appended to the URL — press <leader>Ri to see the single line it becomes.
+GET https://api.open-meteo.com/v1/forecast
+  ?latitude=25.7617
+  &longitude=-80.1918
+  &current=temperature_2m,relative_humidity_2m,wind_speed_10m
+  &timezone=America%2FNew_York
+Accept: application/json
+
+
+### CREATE_POST
+# A POST with a JSON body. Returns 201, so the winbar goes green and the
+# inline status on the request line reads `201 Created`.
+POST https://jsonplaceholder.typicode.com/posts
+Content-Type: application/json
+
+{
+  "title": "sent from curlite",
+  "body": "at {{$isoTimestamp}}",
+  "userId": 1,
+  "nonce": {{$randomInt 1000 9999}}
+}
+
+# @assert status == 201
+# @assert json.title == "sent from curlite"
+
+
+### ECHO_FORM
+# A form body, written the way people actually write them — one parameter per
+# line, `&`-prefixed. curlite strips the newlines before sending; the echo
+# below proves it arrived as one line.
+POST https://postman-echo.com/post
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_id=demo
+&scope=read write
+&nonce={{$randomHex 6}}
+
+# @assert status == 200
+# @assert json.form.client_id == "demo"
+
+
+### LOGIN
+# A real auth flow against a real JWT. The post-request script stashes the
+# token, so WHOAMI below can use it.
+POST https://dummyjson.com/auth/login
+Content-Type: application/json
+
+{
+  "username": "emilys",
+  "password": "emilyspass",
+  "expiresInMins": 30
+}
+
+> {%
+  client.global.set("jwt", response.json.accessToken)
+  client.log("token is " .. #response.json.accessToken .. " chars")
+
+  client.test("looks like a JWT", function()
+    assert(response.json.accessToken:match("^eyJ"), "not a JWT")
+  end)
+%}
+
+# @assert status == 200
+
+
+### WHOAMI
+# `# @run LOGIN` sends LOGIN first if you haven't — so this works even as the
+# very first request you fire. Try it on a fresh session.
+# @run LOGIN
+GET https://dummyjson.com/auth/me
+Authorization: Bearer {{jwt}}
+
+# @assert status == 200
+# @assert json.username == "emilys"
+
+
+### WHOAMI_NO_CREDENTIALS
+# The same endpoint with no credentials at all: 401, and the winbar turns
+# yellow.
+#
+# `# @no-cookie-jar` is doing real work here. curlite keeps a shared cookie
+# jar, and dummyjson sets an auth cookie when you log in — so without that
+# line this request still comes back 200, authenticated by the cookie LOGIN
+# left behind. Carrying a session between requests is normally exactly what
+# you want; here we want to see the failure. Delete the line and re-send to
+# watch it flip to 200.
+# @no-cookie-jar
+GET https://dummyjson.com/auth/me
+
+# @assert status == 401
+
+
+### CHAINED_NO_SCRIPT
+# Reading LOGIN's response directly, with no script involved. Run LOGIN first
+# (or let `# @run` do it) and this resolves.
+# @run LOGIN
+GET https://dummyjson.com/users/{{LOGIN.response.body.$.id}}
+Accept: application/json
+
+
+### GRAPHQL_RICK
+# The query, a blank line, then the variables as JSON. curlite builds the
+# {"query": ..., "variables": ...} payload — <leader>Ri shows it.
+GRAPHQL https://rickandmortyapi.com/graphql
+
+query Characters($page: Int!) {
+  characters(page: $page) {
+    info { count pages }
+    results { id name species status }
+  }
+}
+
+{ "page": 2 }
+
+# @assert status == 200
+# @assert #json.data.characters.results > 0
+
+
+### GRAPHQL_COUNTRIES
+GRAPHQL https://countries.trevorblades.com/
+
+query Country($code: ID!) {
+  country(code: $code) {
+    name
+    capital
+    currency
+    languages { name }
+  }
+}
+
+{ "code": "JP" }
+
+
+### XML_RESPONSE
+# Not JSON — the Body pane indents it as XML and sets the filetype so
+# treesitter colours it.
+GET https://httpbin.org/xml
+
+
+### HTML_RESPONSE
+GET https://example.com
+
+
+### PLAIN_TEXT
+# A larger text/plain body, left exactly as it arrived.
+GET https://raw.githubusercontent.com/neovim/neovim/master/LICENSE.txt
+
+
+### BINARY_RESPONSE
+# curlite notices this isn't text and says so instead of dumping bytes into
+# the buffer. Press `gs` in the response window to save it to a file.
+GET https://httpbin.org/image/png
+
+
+### REDIRECTS
+# Three hops. The Headers pane (`2`) shows every one of them in order, and
+# Stats reports `Redirects: 3`. Add `# @no-redirect` to stop at the first.
+GET https://httpbin.org/redirect/3
+
+
+### BASIC_AUTH
+# `Basic user pass` is base64-encoded for you. <leader>Ri shows the curl line
+# it becomes — note the header is gone, replaced by `--user`.
+GET https://httpbin.org/basic-auth/aaron/hunter2
+Authorization: Basic aaron hunter2
+
+# @assert status == 200
+# @assert json.authenticated == true
+
+
+### NOT_FOUND
+# A deliberate failure, so you can see what one looks like: 404 in orange,
+# and one of the two assertions below fails — the winbar reads `1/2` in red
+# and the Script pane (`6`) shows which.
+GET https://api.github.com/repos/neovim/does-not-exist
+
+# @assert status == 404
+# @assert status == 200
+
+
+### TIMEOUT
+# Also deliberate. The server takes 5s, the request gives up after 1.5s, and
+# the error comes back as `curl (28): ...`.
+# @timeout 1500
+GET https://httpbin.org/delay/5
+
+
+### SAVE_TO_DISK
+# Writes the body next to this file. `>>` refuses if the file exists; `>>!`
+# overwrites.
+GET https://api.github.com/repos/neovim/neovim
+Accept: application/vnd.github+json
+
+>>! ./neovim-repo.json
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PART 2 · THE FORMAT, FEATURE BY FEATURE
+#
+# These run against whichever host the environment selects — press <leader>Re
+# and pick `dev` (httpbin.org). Definitions live in http-client.env.json.
+# ─────────────────────────────────────────────────────────────────────────────
 
 @apiBase = {{host}}/anything
 @traceId = {{$uuid}}
@@ -53,7 +311,7 @@ grant_type=client_credentials
 &scope=read write
 
 
-### LOGIN
+### TOUR_LOGIN
 # Name a request, and later requests can read its response.
 POST {{apiBase}}
 Content-Type: application/json
@@ -72,9 +330,9 @@ Content-Type: application/json
 
 
 ### AUTHENTICATED
-# Two ways to reach LOGIN's token: the global the script set, or the response
+# Two ways to reach TOUR_LOGIN's token: the global the script set, or the response
 # directly. The second form needs no script at all.
-# @run LOGIN
+# @run TOUR_LOGIN
 GET {{host}}/bearer
 Authorization: Bearer {{token}}
 
@@ -83,7 +341,7 @@ Authorization: Bearer {{token}}
 
 
 ### CHAINED_WITHOUT_A_SCRIPT
-GET {{host}}/get?token={{LOGIN.response.body.$.json.token}}
+GET {{host}}/get?token={{TOUR_LOGIN.response.body.$.json.token}}
 Accept: application/json
 
 
@@ -96,7 +354,7 @@ Content-Type: application/json
 { "pin": "{{pin}}" }
 
 
-### BASIC_AUTH
+### TOUR_BASIC_AUTH
 # `Basic user pass` is base64-encoded for you. A value that is already base64
 # is passed through untouched.
 GET {{host}}/basic-auth/aaron/hunter2
@@ -136,7 +394,7 @@ Content-Type: text/plain
 --CurliteBoundary--
 
 
-### SAVE_TO_DISK
+### TOUR_SAVE_TO_DISK
 # `>>!` writes the response body to a file, overwriting it. `>>` refuses to.
 GET {{host}}/json
 
@@ -148,7 +406,7 @@ GET {{host}}/json
 GET {{host}}/delay/5
 
 
-### REDIRECTS
+### TOUR_REDIRECTS
 # Every hop shows up in the Headers pane; `# @no-redirect` stops at the first.
 GET {{host}}/redirect/3
 

@@ -543,6 +543,28 @@ function M.split_args(s)
   return args
 end
 
+--- Names defined by more than one request in a document.
+---
+--- A duplicate is quietly dangerous: `# @run LOGIN` picks one of them, and
+--- `{{LOGIN.response.body.$.x}}` reads whichever ran most recently, so a chain
+--- can silently read the wrong response.
+---@param doc curlite.Document
+---@return string[]  the duplicated names, sorted
+function M.duplicate_names(doc)
+  local seen, dupes = {}, {}
+  for _, req in ipairs(doc.requests) do
+    if req.name and req.name ~= "" then
+      if seen[req.name] then
+        dupes[req.name] = true
+      end
+      seen[req.name] = true
+    end
+  end
+  local out = vim.tbl_keys(dupes)
+  table.sort(out)
+  return out
+end
+
 --- Parse a buffer.
 ---@param bufnr integer|nil  defaults to the current buffer
 ---@return curlite.Document

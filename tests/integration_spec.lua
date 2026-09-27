@@ -658,4 +658,36 @@ DELETE %s/echo
   ui.reset()
 end
 
+function M.duplicate_names_warn_once(t)
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  require("curlite.util").write_file(
+    dir .. "/dupes.http",
+    ("### LOGIN\nGET %s/json\n\n### LOGIN\nGET %s/echo\n"):format(BASE, BASE)
+  )
+  vim.cmd("edit " .. dir .. "/dupes.http")
+
+  local function duplicate_warnings()
+    -- Notifications are scheduled, so let the loop run before reading them.
+    vim.wait(200, function()
+      return false
+    end)
+    return vim.tbl_filter(function(n)
+      return n.msg:find("duplicate request name", 1, true) ~= nil
+    end, t.drain())
+  end
+
+  duplicate_warnings()
+
+  -- Any operation that parses the buffer should surface the collision.
+  require("curlite").goto_request(1)
+  local warned = duplicate_warnings()
+  t.eq(#warned, 1, "expected exactly one warning")
+  t.match(warned[1].msg, "LOGIN")
+
+  -- ...and only once, not on every send.
+  require("curlite").goto_request(-1)
+  t.eq(#duplicate_warnings(), 0, "the warning should not repeat")
+end
+
 return M
