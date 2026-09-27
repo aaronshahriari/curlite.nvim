@@ -262,4 +262,62 @@ function M.unnamed_requests_are_not_duplicates(t)
   t.eq(parser.duplicate_names(doc), {})
 end
 
+function M.crlf_files_parse_cleanly(t)
+  -- A file written on Windows. The CR must not survive into the body, which
+  -- is the one part of a request kept verbatim.
+  local doc = parser.parse(vim.split(
+    "### A\r\nPOST https://x.dev/a\r\nContent-Type: application/json\r\n\r\n{\r\n  \"a\": 1\r\n}\r\n",
+    "\n",
+    { plain = true }
+  ))
+  t.eq(#doc.requests, 1)
+  t.eq(doc.requests[1].name, "A")
+  t.eq(doc.requests[1].url, "https://x.dev/a")
+  t.eq(doc.requests[1].headers["Content-Type"], "application/json")
+  t.eq(doc.requests[1].body, '{\n  "a": 1\n}')
+end
+
+function M.crlf_form_body_collapses_without_a_stray_cr(t)
+  local doc = parser.parse(vim.split(
+    "POST https://x.dev\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\na=1\r\n&b=2\r\n",
+    "\n",
+    { plain = true }
+  ))
+  t.eq(require("curlite.curl").collapse_form_body(doc.requests[1].body), "a=1&b=2")
+end
+
+function M.crlf_variables_and_metadata(t)
+  local doc = parser.parse(vim.split(
+    "@host = https://x.dev\r\n# @timeout 500\r\nGET {{host}}/a\r\n",
+    "\n",
+    { plain = true }
+  ))
+  t.eq(doc.variables.host, "https://x.dev")
+  t.eq(doc.requests[1].metadata.timeout, "500")
+end
+
+function M.utf8_bom_is_ignored(t)
+  local doc = parser.parse(vim.split(
+    "\239\187\191### NAMED\nGET https://x.dev/a\n",
+    "\n",
+    { plain = true }
+  ))
+  t.eq(doc.requests[1].name, "NAMED", "a BOM must not hide the separator")
+end
+
+function M.utf8_bom_before_a_variable(t)
+  local doc = parser.parse(vim.split(
+    "\239\187\191@host = https://x.dev\nGET {{host}}/a\n",
+    "\n",
+    { plain = true }
+  ))
+  t.eq(doc.variables.host, "https://x.dev")
+end
+
+function M.utf8_bom_before_a_request_line(t)
+  local doc = parser.parse(vim.split("\239\187\191GET https://x.dev/a\n", "\n", { plain = true }))
+  t.eq(#doc.requests, 1)
+  t.eq(doc.requests[1].url, "https://x.dev/a")
+end
+
 return M

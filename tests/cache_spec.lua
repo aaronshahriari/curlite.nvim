@@ -188,4 +188,81 @@ function M.a_request_variable_still_resolves_after_json_is_dropped(t)
   variables.reset()
 end
 
+function M.a_shared_document_is_not_mutated_by_sending(t)
+  -- `parse_buffer` now hands the same document to every caller. If anything
+  -- downstream mutated a request in place, the second send would differ from
+  -- the first -- silently, and only on the second run.
+  local exec = require("curlite.exec")
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(
+    table.concat({
+      "@host = https://x.dev",
+      "",
+      "### ONE",
+      "< {% request.headers.set('X-Injected', 'yes') %}",
+      "POST {{host}}/a",
+      "Content-Type: application/json",
+      "Authorization: Basic alice s3cret",
+      "",
+      '{ "n": "{{host}}" }',
+    }, "\n"),
+    "\n",
+    { plain = true }
+  ))
+
+  local doc = parser.parse_buffer(buf)
+  local req = doc.requests[1]
+  local snapshot = vim.deepcopy(req)
+
+  for _ = 1, 3 do
+    local cmd, err = exec.prepare(req)
+    t.truthy(cmd, tostring(err))
+    -- The auth header is consumed into `--user`, the script adds one, and the
+    -- URL is substituted -- all on copies.
+    t.eq(cmd.request.url, "https://x.dev/a")
+    t.eq(cmd.stdin, '{ "n": "https://x.dev" }')
+    t.truthy(vim.tbl_contains(cmd.argv, "alice:s3cret"))
+  end
+
+  t.eq(req, snapshot, "sending must not mutate the shared document")
+  t.truthy(rawequal(doc, parser.parse_buffer(buf)), "and the cache should still hold")
+end
+
+function M.render_request_does_not_touch_its_input(t)
+  local variables = require("curlite.variables")
+  local doc = parser.parse(vim.split(
+    "@t = abc\nPOST https://x.dev/{{t}}\nAuthorization: Bearer {{t}}\n\n{\"k\":\"{{t}}\"}\n",
+    "\n",
+    { plain = true }
+  ))
+  local req = doc.requests[1]
+  local snapshot = vim.deepcopy(req)
+  local ctx = { vars = doc.variables, envvars = {}, globals = {}, dotenv = {}, prompts = {} }
+  for _ = 1, 3 do
+    local out = variables.render_request(req, ctx)
+    t.eq(out.url, "https://x.dev/abc")
+    t.eq(out.headers.Authorization, "Bearer abc")
+    t.eq(out.body, '{"k":"abc"}')
+  end
+  t.eq(req, snapshot, "the source request must be untouched")
+end
+
+function M.curl_build_does_not_touch_its_input(t)
+  local curl = require("curlite.curl")
+  local doc = parser.parse(vim.split(
+    "GET https://x.dev\nAuthorization: Basic alice s3cret\nX-REQUEST-TYPE: GraphQL\n\nquery { me { id } }\n",
+    "\n",
+    { plain = true }
+  ))
+  local req = doc.requests[1]
+  local snapshot = vim.deepcopy(req)
+  for _ = 1, 3 do
+    local cmd = curl.build(req)
+    -- Both headers are consumed, and the method is rewritten to POST.
+    t.eq(cmd.request.method, "POST")
+    t.eq(cmd.request.headers.Authorization, nil)
+  end
+  t.eq(req, snapshot, "curl.build must work on a copy")
+end
+
 return M

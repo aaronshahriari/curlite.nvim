@@ -251,6 +251,23 @@ function M.parse(lines, source)
 
   for i = 1, #lines do
     local line = lines[i]
+
+    -- A file written on Windows, or checked out with `core.autocrlf`, arrives
+    -- with a CR on the end of every line. That is the file's line ending, not
+    -- payload: left in place it rides along in the body and is sent, so a
+    -- JSON body gains a stray CR per line and a form body ends in one. Headers
+    -- and URLs were already safe because they are trimmed; bodies are kept
+    -- verbatim, which is exactly why this has to happen here.
+    if line:sub(-1) == "\r" then
+      line = line:sub(1, -2)
+    end
+
+    -- A UTF-8 BOM on the first line would otherwise hide a leading `###` or
+    -- `@variable` behind three invisible bytes.
+    if i == 1 and line:sub(1, 3) == "\239\187\191" then
+      line = line:sub(4)
+    end
+
     local stripped = trim(line)
 
     -- ---- inline script block accumulation -------------------------------
