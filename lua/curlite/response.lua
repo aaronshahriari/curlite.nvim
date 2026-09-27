@@ -185,6 +185,11 @@ function M.build(cmd, result, duration_ms)
 
   local stats = util.json_decode(vim.trim(result.stdout or "")) or {}
 
+  -- `--write-out %{json}` includes the full PEM chain under `certs`, which is
+  -- kilobytes of text nothing here reads. Drop it rather than carry a copy per
+  -- response through the history ring.
+  stats.certs = nil
+
   if last.status_text == "" then
     last.status_text = M.reason(last.status)
   end
@@ -214,7 +219,9 @@ function M.build(cmd, result, duration_ms)
   end
 
   if result.code ~= 0 then
-    resp.error = M.curl_error(result.code, result.stderr or "")
+    -- curl's own `errormsg` is more precise than anything we could infer from
+    -- the exit code, and it survives even when stderr was noisy.
+    resp.error = M.curl_error(result.code, result.stderr or "", stats.errormsg)
   end
 
   return resp
@@ -243,14 +250,18 @@ local CURL_ERRORS = {
 
 ---@param code integer
 ---@param stderr string
+---@param errormsg string|nil  curl's own `%{errormsg}`
 ---@return string
-function M.curl_error(code, stderr)
-  local known = CURL_ERRORS[code]
-  -- curl's own `curl: (6) Could not resolve host: x` line beats our table.
+function M.curl_error(code, stderr, errormsg)
+  if errormsg and errormsg ~= "" then
+    return ("curl (%d): %s"):format(code, errormsg)
+  end
+  -- curl's `curl: (6) Could not resolve host: x` line beats our table.
   local detail = stderr:match("curl: %(%d+%)%s*(.-)%s*$")
   if detail and detail ~= "" then
     return ("curl (%d): %s"):format(code, detail)
   end
+  local known = CURL_ERRORS[code]
   if known then
     return ("curl (%d): %s"):format(code, known)
   end

@@ -92,4 +92,22 @@ function M.jq_filter(t)
   t.truthy(err)
 end
 
+function M.filetype_matching_is_deterministic(t)
+  -- `application/xhtml+xml` contains both "html" and "xml"; `pairs` order
+  -- would make the answer vary between runs.
+  for _ = 1, 20 do
+    t.eq(format.filetype("application/xhtml+xml"), "html")
+    t.eq(format.filetype("text/html; charset=utf-8"), "html")
+    t.eq(format.filetype("text/javascript"), "javascript")
+  end
+end
+
+function M.filetype_honours_a_user_added_type(t)
+  local config = require("curlite.config")
+  local saved = vim.deepcopy(config.get().response.filetypes)
+  config.get().response.filetypes.toml = "toml"
+  t.eq(format.filetype("application/toml"), "toml")
+  config.get().response.filetypes = saved
+end
+
 return M

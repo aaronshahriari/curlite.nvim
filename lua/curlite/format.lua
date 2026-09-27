@@ -5,6 +5,12 @@ local util = require("curlite.util")
 
 local M = {}
 
+-- The order `filetype()` checks `response.filetypes` in. More specific types
+-- come first: "html" precedes "xml" so `application/xhtml+xml` is treated as
+-- the HTML document it is, and "text" is last because almost every textual
+-- type contains it.
+M.filetype_order = { "json", "html", "xml", "javascript", "css", "yaml", "csv", "text" }
+
 --- Pure-Lua JSON pretty printer. Used when `jq` isn't installed.
 ---
 --- It walks the source text rather than decoding and re-encoding, so key order
@@ -126,16 +132,34 @@ function M.filetype(content_type)
   end
   local cfg = config.get()
   local lower = content_type:lower()
-  -- Most specific first, so `application/problem+json` maps to json and
-  -- `text/html` doesn't fall through to `text`.
-  for key, ft in pairs(cfg.response.filetypes) do
-    if lower:find(key, 1, true) and key ~= "text" then
+
+  -- Order matters and `pairs` has none: `application/xhtml+xml` contains both
+  -- "html" and "xml", and `text/html` contains "text". Matching in a fixed
+  -- order makes the answer the same every time.
+  for _, key in ipairs(M.filetype_order) do
+    local ft = cfg.response.filetypes[key]
+    if ft and lower:find(key, 1, true) then
       return ft
     end
   end
-  if lower:find("text", 1, true) then
-    return cfg.response.filetypes.text
+
+  -- Anything the user added to `response.filetypes` that isn't in the order
+  -- above still gets a chance, most specific (longest key) first.
+  local extra = {}
+  for key in pairs(cfg.response.filetypes) do
+    if not vim.tbl_contains(M.filetype_order, key) then
+      table.insert(extra, key)
+    end
   end
+  table.sort(extra, function(a, b)
+    return #a > #b
+  end)
+  for _, key in ipairs(extra) do
+    if lower:find(key, 1, true) then
+      return cfg.response.filetypes[key]
+    end
+  end
+
   return nil
 end
 

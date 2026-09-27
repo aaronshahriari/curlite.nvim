@@ -604,4 +604,20 @@ GET %s/echo?tok={{shared_tok}}
   env.globals = {}
 end
 
+function M.stats_do_not_carry_the_cert_chain(t)
+  if not server_up() then
+    return
+  end
+  -- `--write-out %{json}` includes the whole PEM chain; keeping it would put
+  -- kilobytes of unread text in every entry of the history ring.
+  t.eq(run("GET %BASE%/json\n").response.stats.certs, nil)
+end
+
+function M.curl_errormsg_is_used(t)
+  local r = run("GET http://127.0.0.1:1/nope\n")
+  -- curl's own message, not our exit-code table.
+  t.match(r.error, "^curl %(7%): ")
+  t.truthy(#r.error > 12, "expected a detailed message, got: " .. r.error)
+end
+
 return M

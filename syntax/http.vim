@@ -14,49 +14,65 @@ endif
 
 syn case match
 
-" --- separators and comments ------------------------------------------------
-syn match httpSeparator  "^###.*$"      contains=httpRequestName
-syn match httpRequestName "\%(^###\s*\)\@<=.\+$" contained
-
-syn match httpComment    "^\s*\%(#\|//\).*$" contains=httpMetadata,httpTodo
-syn match httpMetadata   "@[[:alnum:]_-]\+" contained nextgroup=httpMetaValue
-syn match httpMetaValue  ".*$"           contained
-syn keyword httpTodo     TODO FIXME XXX NOTE contained
+" Embedded languages first: a `contains=@cluster` is only resolved once the
+" cluster exists, and `syn include` clears b:current_syntax as a side effect.
+syn include @httpLua syntax/lua.vim
+unlet! b:current_syntax
+syn include @httpJson syntax/json.vim
+unlet! b:current_syntax
 
 " --- variables --------------------------------------------------------------
-syn match httpVariableDef "^@[[:alnum:]_.-]\+\ze\s*=" 
-syn match httpAssign      "=" contained
-syn region httpTemplate   start="{{" end="}}" oneline contains=httpDynamic
-syn match httpDynamic     "\$[[:alnum:]_.]\+" contained
+" `containedin=ALL` so a `{{var}}` lights up wherever it appears: in a URL, a
+" header value, or inside a JSON string in the body.
+syn match httpVariableDef "^@[[:alnum:]_.-]\+\ze\s*="
+syn region httpTemplate start="{{" end="}}" oneline containedin=ALL contains=httpDynamic
+syn match httpDynamic "\$[[:alnum:]_.]\+" contained
+
+" --- separators and comments ------------------------------------------------
+syn match httpSeparator "^###.*$" contains=httpRequestName
+syn match httpRequestName "\%(^###\s*\)\@<=.\+$" contained
+
+" `###` is a separator, not a comment, and a `syn match` defined later wins at
+" the same position -- hence the negative lookahead rather than relying on the
+" order these two are defined in.
+syn match httpComment "^\s*\%(###\)\@!\%(#\|//\).*$"
+      \ contains=httpMetadata,httpTodo,httpTemplate
+syn match httpMetadata "@[[:alnum:]_-]\+" contained nextgroup=httpMetaValue
+syn match httpMetaValue ".*$" contained contains=httpTemplate
+syn keyword httpTodo TODO FIXME XXX NOTE contained
 
 " --- the request line -------------------------------------------------------
-syn match httpMethod  "^\s*\<\%(GET\|POST\|PUT\|PATCH\|DELETE\|HEAD\|OPTIONS\|TRACE\|CONNECT\|QUERY\|GRAPHQL\)\>"
+syn match httpMethod "^\s*\<\%(GET\|POST\|PUT\|PATCH\|DELETE\|HEAD\|OPTIONS\|TRACE\|CONNECT\|QUERY\|GRAPHQL\)\>"
       \ nextgroup=httpURL skipwhite
-syn match httpURL     "\S\+" contained contains=httpTemplate nextgroup=httpVersion skipwhite
+syn match httpURL "\S\+" contained contains=httpTemplate nextgroup=httpVersion skipwhite
 syn match httpVersion "HTTP/[0-9.]\+" contained
 syn match httpURLCont "^\s\+[?&#]\S*$" contains=httpTemplate
 
 " --- headers ----------------------------------------------------------------
-syn match httpHeaderName  "^[A-Za-z][A-Za-z0-9._-]*\ze\s*:" nextgroup=httpHeaderSep
-syn match httpHeaderSep   ":" contained nextgroup=httpHeaderValue
+syn match httpHeaderName "^[A-Za-z][A-Za-z0-9._-]*\ze\s*:" nextgroup=httpHeaderSep
+syn match httpHeaderSep ":" contained nextgroup=httpHeaderValue
 syn match httpHeaderValue ".*$" contained contains=httpTemplate
 
 " --- scripts and redirection ------------------------------------------------
-syn region httpScript matchgroup=httpScriptDelim start="^\s*[<>]\s*{%" end="%}" contains=@httpLua keepend
-syn match  httpScriptFile "^\s*[<>]\s\+\%(\./\|/\|\~\)\S*$"
-syn match  httpRedirect   "^\s*>>!\?\s\+\S.*$"
-syn match  httpBodyFile   "^\s*<\s\+\S.*$"
-
-" Lua inside `{% ... %}` blocks.
-syn include @httpLua syntax/lua.vim
-unlet! b:current_syntax
+syn region httpScript matchgroup=httpScriptDelim
+      \ start="^\s*[<>]\s*{%" end="%}" keepend contains=@httpLua
+syn match httpScriptFile "^\s*[<>]\s\+\%(\./\|\.\./\|/\|\~\)\S*$"
+syn match httpRedirect "^\s*>>!\?\s\+\S.*$" contains=httpTemplate
+syn match httpBodyFile "^\s*<\s\+\S.*$" contains=httpTemplate
 
 " --- bodies -----------------------------------------------------------------
-" A JSON-looking body gets the real JSON syntax; anything else stays plain so
-" a form body or GraphQL query isn't mis-coloured.
-syn region httpJsonBody start="^\s*[{[]" end="^\s*[}\]]\s*$" keepend contains=@httpJson,httpTemplate fold
-syn include @httpJson syntax/json.vim
-unlet! b:current_syntax
+" A body that starts with `{` or `[` on its own line gets real JSON
+" highlighting. The region runs to whatever ends the request -- the next
+" separator, a metadata comment, a script block, or the end of the file --
+" rather than to a closing brace, because a nested `}` at the start of a line
+" would end it far too early.
+syn region httpJsonBody
+      \ start="^\s*\ze[{[]"
+      \ end="^###"me=s-1
+      \ end="^\s*\%(#\|//\)\s*@"me=s-1
+      \ end="^\s*[<>]\s*\%({%\|\./\|/\)"me=s-1
+      \ end="\%$"
+      \ keepend contains=@httpJson,httpTemplate
 
 syn match httpBoundary "^--[A-Za-z0-9._-]\+-\?-\?$"
 
