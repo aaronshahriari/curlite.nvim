@@ -107,6 +107,8 @@ local METADATA = {
   { "name", "name this request, so `{{name.response...}}` can reference it" },
   { "prompt", "ask for a value before sending: `# @prompt token Paste the token`" },
   { "assert", "check the response: `# @assert status == 200`" },
+  { "run", "send another named request first: `# @run LOGIN`" },
+  { "import", "make another file's named requests available: `# @import ./auth.http`" },
   { "accept", "shorthand for the Accept header" },
   { "timeout", "milliseconds before the request is abandoned" },
   { "delay", "milliseconds to wait before sending" },

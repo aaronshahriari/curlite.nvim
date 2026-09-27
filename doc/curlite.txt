@@ -1,0 +1,938 @@
+*curlite.txt*   A REST client for Neovim, built on curl
+
+                              ____
+                     ___ _  _|  _ \ _ _|__ ___
+                    / __| || | |_) || |  __/ _ \
+                   | (__| || |  _ < | | |_|  __/
+                    \___|\_,_|_| \_\___|\__\___|
+
+
+Author:  Aaron Shahriari
+License: MIT
+
+==============================================================================
+CONTENTS                                                    *curlite-contents*
+
+  1. Introduction ................................ |curlite-introduction|
+  2. Requirements ................................ |curlite-requirements|
+  3. Installation ................................ |curlite-installation|
+  4. Quick start ................................. |curlite-quick-start|
+  5. The .http format ............................ |curlite-format|
+       Requests .................................. |curlite-format-requests|
+       Headers and bodies ........................ |curlite-format-body|
+       Metadata .................................. |curlite-metadata|
+       Multipart ................................. |curlite-multipart|
+       GraphQL ................................... |curlite-graphql|
+       Files in and out .......................... |curlite-files|
+  6. Variables ................................... |curlite-variables|
+       Document variables ........................ |curlite-variables-document|
+       Environments .............................. |curlite-environments|
+       Dynamic variables ......................... |curlite-dynamic|
+       Request variables ......................... |curlite-request-variables|
+       Prompts ................................... |curlite-prompts|
+  7. Authentication .............................. |curlite-auth|
+  8. Scripts ..................................... |curlite-scripts|
+  9. Assertions .................................. |curlite-assertions|
+ 10. Chaining requests ........................... |curlite-chaining|
+ 11. The response window ......................... |curlite-response-window|
+ 12. Commands .................................... |curlite-commands|
+ 13. Mappings .................................... |curlite-mappings|
+ 14. Configuration ............................... |curlite-configuration|
+ 15. Lua API ..................................... |curlite-api|
+ 16. Completion .................................. |curlite-completion|
+ 17. Statusline .................................. |curlite-statusline|
+ 18. Highlights .................................. |curlite-highlights|
+ 19. Coming from kulala .......................... |curlite-kulala|
+ 20. Troubleshooting ............................. |curlite-troubleshooting|
+
+==============================================================================
+1. INTRODUCTION                                         *curlite-introduction*
+
+curlite runs HTTP requests written in `.http` files — the same format JetBrains
+IDEs, VS Code's REST Client and kulala.nvim use — and shows the response in a
+split.
+
+Requests go out through `curl`. Nothing else is needed: no language server, no
+companion binary, no Node. What arrives comes back out of band (headers to one
+file, body to another, timings as JSON on stdout), so a body that happens to
+contain header-looking lines can't confuse the parser and a large download
+never passes through Lua twice.
+
+Pre- and post-request scripts are written in **Lua**, not JavaScript. You are
+already in a Lua editor; the interpreter is free and the sandbox is one table.
+
+==============================================================================
+2. REQUIREMENTS                                         *curlite-requirements*
+
+    Neovim 0.10+
+    curl                (7.75+ for the Stats pane; older still works)
+
+Optional:
+
+    jq                  prettier JSON, and the `/` filter in the response
+                        window
+    blink.cmp           completion inside `.http` files
+                        (|curlite-completion|)
+    a treesitter `http` parser
+                        used for highlighting if present; curlite ships a
+                        syntax file that is used otherwise
+    lualine.nvim        the statusline component (|curlite-statusline|)
+
+Run `:checkhealth curlite` to see what is available.
+
+==============================================================================
+3. INSTALLATION                                         *curlite-installation*
+
+With |vim.pack| (Neovim 0.12+): >lua
+
+    vim.pack.add({ { src = "https://github.com/aaronshahriari/curlite.nvim" } })
+    require("curlite").setup({})
+<
+With lazy.nvim: >lua
+
+    {
+      "aaronshahriari/curlite.nvim",
+      ft = { "http" },
+      cmd = { "Curlite", "CurliteRun" },
+      opts = {},
+    }
+<
+`setup()` must run for curlite to register its filetypes, keymaps and
+commands. Calling it more than once is safe.
+
+`.http` is detected by Neovim itself. curlite additionally maps `.rest` and
+`*.http.*` (so `api.http.dev` works) onto the `http` filetype; set
+`filetype.register = false` if you would rather own that yourself.
+
+==============================================================================
+4. QUICK START                                           *curlite-quick-start*
+
+Put this in `api.http`: >
+
+    @host = https://httpbin.org
+
+    ### GET_IP
+    GET {{host}}/ip
+    Accept: application/json
+<
+Park the cursor anywhere in it and press `<leader>Rs`. The response opens in a
+split on the right, with the status and timing in the winbar, and
+`  200 OK · 143ms` appears at the end of the request line.
+
+`L` and `H` move between panes: the body, the response headers, both together,
+timing and size statistics, curl's verbose trace, and anything your scripts
+logged.
+
+Then add an environment file next to it, `http-client.env.json`: >
+
+    {
+      "$shared": { "apiVersion": "v1" },
+      "dev":  { "host": "http://localhost:3000" },
+      "prod": { "host": "https://api.example.com" }
+    }
+<
+Drop the `@host` line, press `<leader>Re` to pick an environment, and the same
+request now runs against either one. The choice is remembered per project.
+
+==============================================================================
+5. THE .HTTP FORMAT                                           *curlite-format*
+
+------------------------------------------------------------------------------
+REQUESTS                                             *curlite-format-requests*
+
+A line of three or more `#` separates requests. Anything after it is the
+request's name: >
+
+    ### Fetch the current user
+    GET https://api.example.com/me
+
+    ### Create one
+    POST https://api.example.com/users
+<
+`# @name` does the same thing and wins if both are present. Names matter: they
+are how |curlite-request-variables| and |curlite-chaining| refer to a request.
+
+The method is optional — a bare URL is a GET. A trailing `HTTP/1.1` is
+recognised and forces that protocol version.
+
+A file with no `###` separators still works: a line at column 0 that starts
+with a method and follows a blank line begins a new request. (A URL containing
+a space is never treated as a request line, which is what keeps this from
+firing on prose inside a body.)
+
+A long query string can be split across lines. A line indented by at least one
+space and beginning with `?`, `&` or `#` is appended to the URL: >
+
+    GET https://api.example.com/search
+      ?q=neovim
+      &lang=lua
+      &limit=25
+<
+------------------------------------------------------------------------------
+HEADERS AND BODIES                                       *curlite-format-body*
+
+Headers follow the request line, one per line, until a blank line. A
+continuation line (indented) is folded onto the header above it. `Name:` with
+no value sends an empty header rather than dropping it.
+
+Everything after the first blank line is the body, verbatim. Two cases are
+handled specially:
+
+  * `application/x-www-form-urlencoded` bodies have their newlines removed.
+    This is how these are written in practice — >
+
+        POST https://api.example.com/token
+        Content-Type: application/x-www-form-urlencoded
+
+        grant_type=client_credentials
+        &client_id={{clientId}}
+        &scope=read write
+<
+    and the newlines are formatting, not data. Every REST client strips them;
+    sending them literally is always a 400.
+
+  * a body that parses as JSON and has no `Content-Type` gets
+    `application/json`. Set `request.infer_content_type = false` to stop that.
+
+A missing blank line between the headers and the body is forgiven: the first
+line that isn't a header starts the body.
+
+------------------------------------------------------------------------------
+METADATA                                                    *curlite-metadata*
+
+A comment of the form `# @key value` (or `// @key value`) configures the
+request it precedes. Ordinary comments are ignored.
+
+Metadata is normally written above the request line, but the `@key` form is
+also recognised inside a body, so `# @assert` after a script block works. A
+plain `#` comment inside a body stays part of the body, so a Markdown heading
+or a YAML comment in a payload survives.
+
+                                                       *curlite-metadata-list*
+    @name NAME          name this request
+    @prompt NAME DESC   ask for a value before sending (|curlite-prompts|)
+    @assert EXPR        check the response (|curlite-assertions|)
+    @run NAME           send another request first (|curlite-chaining|)
+    @import PATH        make another file's requests available
+    @accept TYPE        shorthand for the Accept header
+    @timeout MS         abandon the request after this long
+    @delay MS           wait this long before sending
+    @insecure           skip TLS certificate verification
+    @no-redirect        do not follow redirects
+    @max-redirs N       follow at most N redirects
+    @compressed         request and decode a compressed response
+    @http2 @http3 @http1.1
+                        force a protocol version
+    @proxy URL          send through a proxy
+    @unix-socket PATH   connect over a unix socket
+    @cert PATH          client certificate
+    @key PATH           client key
+    @cacert PATH        CA bundle
+    @resolve H:P:ADDR   pin a hostname to an address
+    @interface NAME     bind to a network interface
+    @retry N            retry a transient failure N times
+    @user USER:PASS     credentials, passed to curl's --user
+    @graphql            treat the body as a GraphQL query
+    @skip               never send this request; a "send all" steps over it
+    @no-cookie-jar      don't read or write the shared cookie jar
+    @curl ARGS          raw curl flags, appended verbatim
+
+`@curl` is the escape hatch. Anything curl can do that curlite hasn't given a
+name to: >
+
+    # @curl --tlsv1.3 --limit-rate 200k
+    GET https://api.example.com/large
+<
+------------------------------------------------------------------------------
+MULTIPART                                                  *curlite-multipart*
+
+Write the body with explicit boundaries and curlite converts it to curl `-F`
+arguments (letting curl generate the real boundary): >
+
+    POST https://api.example.com/upload
+    Content-Type: multipart/form-data; boundary=CurliteBoundary
+
+    --CurliteBoundary
+    Content-Disposition: form-data; name="title"
+
+    Holiday photo
+    --CurliteBoundary
+    Content-Disposition: form-data; name="photo"; filename="beach.jpg"
+    Content-Type: image/jpeg
+
+    < ./beach.jpg
+    --CurliteBoundary--
+<
+A part whose content is `< ./path` sends that file; anything else is sent
+literally.
+
+------------------------------------------------------------------------------
+GRAPHQL                                                      *curlite-graphql*
+
+Use the `GRAPHQL` method, an `X-REQUEST-TYPE: GraphQL` header, or
+`# @graphql`. The body is the query; a blank line followed by a JSON object
+supplies the variables: >
+
+    GRAPHQL https://api.example.com/graphql
+
+    query User($id: ID!) {
+      user(id: $id) { name email }
+    }
+
+    { "id": "42" }
+<
+curlite sends `{"query": "...", "variables": {...}}` as JSON.
+
+------------------------------------------------------------------------------
+FILES IN AND OUT                                               *curlite-files*
+
+    < ./payload.json    send this file as the body. curl streams it, so the
+                        size doesn't matter.
+    >> ./out.json       write the response body here, refusing if the file
+                        exists
+    >>! ./out.json      write it, overwriting
+
+Relative paths are relative to the `.http` file, not your working directory.
+
+==============================================================================
+6. VARIABLES                                               *curlite-variables*
+
+`{{name}}` anywhere in a URL, header name, header value, body or `@curl`
+argument is substituted before the request goes out. Resolution is recursive,
+so `@base = {{host}}/v1` works.
+
+When a name can't be resolved the request is refused rather than sent with a
+literal `{{name}}` in it, and the error says which names were missing.
+
+Lookup order, first hit wins:
+
+    1. dynamic functions    {{$uuid}}, {{$env.FOO}}, ...
+    2. request variables    {{LOGIN.response.body.$.token}}
+    3. script globals       client.global.set("x", ...)
+    4. prompt answers       # @prompt
+    5. document variables   @token = abc
+    6. environment          http-client.env.json
+
+------------------------------------------------------------------------------
+DOCUMENT VARIABLES                                *curlite-variables-document*
+
+A line beginning with `@` at column 0: >
+
+    @host = https://api.example.com
+    @token = {{$env.API_TOKEN}}
+<
+By default a variable is visible to the requests *below* it, so redefining one
+mid-file does what it looks like. Set `request.variables_scope = "document"`
+for kulala's behaviour, where every request in the file sees every variable
+regardless of order.
+
+------------------------------------------------------------------------------
+ENVIRONMENTS                                            *curlite-environments*
+
+`http-client.env.json` beside your `.http` file — or in any directory above
+it — defines one object per environment: >
+
+    {
+      "$shared": { "apiVersion": "v1" },
+      "dev":  { "host": "http://localhost:3000" },
+      "prod": { "host": "https://api.example.com", "auth": {
+                  "clientId": "abc" } }
+    }
+<
+`$shared` is merged under every environment. Nested objects are reachable with
+a dotted name: `{{auth.clientId}}`.
+
+`http-client.private.env.json` is merged over the public file and is the one to
+gitignore. Files nearer the `.http` file win over ones further up, so a
+sub-directory can override a project-wide default.
+
+`//` and `/* */` comments in these files are tolerated (a `//` inside a string,
+as in `https://`, is left alone).
+
+Pick an environment with `<leader>Re` or `:Curlite env`. The choice is
+remembered per project, keyed on the nearest directory holding an env file or
+a `.git`.
+
+A `.env` file in the same directories is read too, and is reachable as
+`{{$dotenv NAME}}`.
+
+------------------------------------------------------------------------------
+DYNAMIC VARIABLES                                            *curlite-dynamic*
+
+    {{$uuid}}                   a random v4 UUID ({{$guid}} is the same)
+    {{$timestamp}}              seconds since the epoch
+    {{$timestamp -1 d}}         shifted; units ms s m h d w M y
+    {{$isoTimestamp}}           2026-09-27T12:00:00Z
+    {{$isoTimestamp 7 d}}       shifted
+    {{$datetime iso8601}}       also rfc1123, unix, or a strftime format
+    {{$datetime "%Y/%m/%d" -1 d}}
+    {{$localDatetime iso8601}}  the same, in local time
+    {{$date}}                   today; {{$date %d/%m/%Y}} to choose a format
+    {{$time}}                   now
+    {{$randomInt 1 100}}        an integer in a range
+    {{$randomAlphaNumeric 16}}  a random string
+    {{$randomHex 16}}
+    {{$randomEmail}}
+    {{$randomFirstName}} {{$randomLastName}} {{$randomFullName}}
+    {{$env.NAME}}               a process environment variable
+    {{$env NAME}}               the same
+    {{$processEnv NAME}}        the same
+    {{$dotenv NAME}}            from the nearest .env file
+    {{$exec COMMAND}}           stdout of a shell command, trailing newline
+                                stripped
+
+IntelliJ's spellings also work: `{{$random.integer(1, 100)}}`,
+`{{$random.uuid}}`, `{{$random.alphanumeric(8)}}`, `{{$random.float(0, 1)}}`,
+`{{$random.hexadecimal(12)}}`, `{{$random.email}}`.
+
+`{{$exec}}` is how to reach a secret manager without putting it in a file: >
+
+    @token = {{$exec pass show api/example/token}}
+<
+------------------------------------------------------------------------------
+REQUEST VARIABLES                                  *curlite-request-variables*
+
+Once a named request has run, later requests can read its response: >
+
+    ### LOGIN
+    POST https://api.example.com/login
+
+    { "user": "aaron", "password": "{{password}}" }
+
+    ### ME
+    GET https://api.example.com/me
+    Authorization: Bearer {{LOGIN.response.body.$.data.token}}
+<
+    NAME.response.body.$.a.b[0].c   a JSONPath into the body
+    NAME.response.body              the whole body as text
+    NAME.response.headers.NAME      a response header (case-insensitive)
+    NAME.response.status            the status code
+    NAME.response.cookies.NAME      a cookie the response set
+    NAME.request.body.$.x           what was sent
+    NAME.request.headers.NAME
+
+Array indices are 0-based, as JSONPath expects. `$last` refers to whatever ran
+most recently.
+
+These live for the session. If the referenced request hasn't run yet the
+request is refused with a clear message — or use `# @run` to have curlite run
+it for you (|curlite-chaining|).
+
+------------------------------------------------------------------------------
+PROMPTS                                                      *curlite-prompts*
+
+>
+    # @prompt token Paste your bearer token
+    # @prompt env_name Which tenant?
+    GET https://api.example.com/me
+    Authorization: Bearer {{token}}
+<
+Asked once per session and then reused. `:Curlite clear` forgets the answers.
+
+==============================================================================
+7. AUTHENTICATION                                               *curlite-auth*
+
+Most schemes are written as an ordinary `Authorization` header and mapped onto
+the curl flag that implements them — which matters for Digest and NTLM, where
+the challenge needs two round trips that curl handles itself.
+
+    Authorization: Bearer {{token}}
+                        sent as-is
+    Authorization: Basic alice s3cret
+    Authorization: Basic alice:s3cret
+                        base64-encoded for you. A value that is already
+                        base64 is passed through untouched.
+    Authorization: Digest alice s3cret
+    Authorization: NTLM alice s3cret
+    Authorization: Negotiate
+    Authorization: AWS KEY SECRET [region] [service]
+                        AWS SigV4; region defaults to us-east-1 and service
+                        to execute-api
+
+Client certificates use `# @cert`, `# @key` and `# @cacert`.
+
+There is no built-in OAuth2 flow. For client credentials, write the token
+request as a request and chain it: >
+
+    ### TOKEN
+    POST {{host}}/oauth/token
+    Content-Type: application/x-www-form-urlencoded
+
+    grant_type=client_credentials
+    &client_id={{clientId}}
+    &client_secret={{clientSecret}}
+
+    > {% client.global.set("access_token", response.json.access_token) %}
+
+    ### ANYTHING
+    # @run TOKEN
+    GET {{host}}/v1/things
+    Authorization: Bearer {{access_token}}
+<
+For a browser-redirect flow, get the token however you normally would and
+reach it with `{{$exec}}`.
+
+Cookies are kept in a shared jar (`curl.cookie_jar`), so a login request's
+session carries into the next request without you doing anything.
+
+==============================================================================
+8. SCRIPTS                                                   *curlite-scripts*
+
+A `< {% ... %}` block runs before the request, a `> {% ... %}` block after it.
+`< ./file.lua` and `> ./file.lua` run a script from disk. The language is Lua.
+
+>
+    ### LOGIN
+    < {%
+      request.headers.set("X-Request-Id", client.global.get("run_id"))
+    %}
+    POST https://api.example.com/login
+
+    { "user": "aaron" }
+
+    > {%
+      client.global.set("token", response.json.data.token)
+      client.log("token expires in " .. response.json.data.expires_in)
+
+      client.test("got a token", function()
+        assert(#response.json.data.token > 20, "token looks too short")
+      end)
+    %}
+<
+Everything `client.log` prints and every `client.test` result appears in the
+response window's Script pane.
+
+                                                       *curlite-script-request*
+`request` (both phases, mutable) ~
+
+    .method .url .body           assign to them to change what is sent
+    .headers.get(name)           case-insensitive
+    .headers.set(name, value)
+    .headers.remove(name)
+    .headers.all()
+    .variables.set(name, value)  a document variable, this request only
+    .variables.get(name)
+    .metadata                    the request's `# @` metadata
+    .skip([reason])              don't send this request
+    .abort([reason])             stop a "send all" run here
+
+                                                      *curlite-script-response*
+`response` (post-request only) ~
+
+    .status .status_text .http_version
+    .body                        the raw body
+    .json                        decoded, or nil
+    .headers                     case-insensitive lookup
+    .header(name)
+    .cookies
+    .duration_ms
+    .stats                       everything in the Stats pane
+
+                                                        *curlite-script-client*
+`client` (both phases) ~
+
+    .global.set(name, value)     visible as {{name}} from here on, for the
+                                 rest of the session
+    .global.get(name)
+    .global.clear([name])
+    .global.all()
+    .log(...)                    to the Script pane
+    .test(name, fn)              a named assertion block
+    .assert(cond, message)
+    .exit()                      stop this script
+
+Also in scope: `json` (|vim.json|), `env` (a read-only copy of the active
+environment), `log` and `print` (both aliases for `client.log`), and the pure
+parts of the standard library. `io`, `os.execute` and the loaders are not, with
+`scripts.sandbox = true`; set it to `false` if you script against your own
+modules.
+
+==============================================================================
+9. ASSERTIONS                                             *curlite-assertions*
+
+`# @assert` takes a Lua expression evaluated against the response: >
+
+    # @assert status == 200
+    # @assert json.data.id ~= nil
+    # @assert #json.items == 25
+    # @assert headers["content-type"]:find("json")
+    # @assert duration < 1000
+    GET https://api.example.com/items
+<
+In scope: `status`, `body`, `json`, `headers` (lower-cased keys), `cookies`,
+`duration` (milliseconds), and `response`.
+
+Results appear in the Script pane and as a `3/4` tally in the winbar and on the
+request line. `client.test()` in a post-request script is the same mechanism
+with room for several statements.
+
+`:CurliteRun path/to/file.http` runs a whole file and reports the totals, which
+is the closest thing to a test runner here.
+
+==============================================================================
+10. CHAINING REQUESTS                                       *curlite-chaining*
+
+`# @run NAME` sends another request first: >
+
+    ### REFRESH
+    POST {{host}}/auth/refresh
+    Content-Type: application/x-www-form-urlencoded
+
+    refresh_token={{refresh_token}}
+
+    > {% client.global.set("token", response.json.access_token) %}
+
+    ### ORDERS
+    # @run REFRESH
+    GET {{host}}/orders
+    Authorization: Bearer {{token}}
+<
+Several `# @run` lines run in the order written. A dependency's own `# @run`
+is followed too. A cycle terminates: a request already in the chain is not run
+again. If a dependency fails or aborts, the request that needed it is not sent.
+
+`# @import ./auth.http` makes another file's named requests available to
+`# @run` and to |curlite-request-variables|. Imports are followed up to five
+levels deep, a file already seen is skipped, and the importing file wins on a
+name clash — so a local override behaves as expected.
+
+==============================================================================
+11. THE RESPONSE WINDOW                              *curlite-response-window*
+
+One window, six panes, with the pane list in the winbar (clickable) and the
+status, timing, size and assertion tally on the left.
+
+    Body        the response body, formatted. This buffer holds *only* the
+                body, so treesitter highlights it and jq can filter it.
+    Headers     the response headers. Every redirect hop is shown, in order.
+    All         the request as sent, then the headers, then the body.
+    Stats       status, protocol, a timing breakdown (DNS, connect, TLS,
+                time-to-first-byte, download), sizes, the remote address, and
+                any cookies that were set.
+    Verbose     curl's `--verbose` trace.
+    Script      what your scripts logged, and every assertion result.
+
+Drop panes you never look at from `ui.panes`.
+
+Mappings inside the window (all configurable — |curlite-configuration|):
+
+    q           close
+    L / H       next / previous pane
+    1 .. 6      jump to a pane
+    ] / [       newer / older response from the history
+    gd          jump back to the request that produced this
+    Y           yank the body
+    gs          save the body to a file
+    /           filter a JSON body with a jq expression
+    <Esc>       clear the filter
+    R           re-send this request
+
+The window keeps `winfixbuf` set, so a stray `:bnext` or a plugin can't replace
+the response with something else.
+
+`ui.display` chooses where it opens: `right`, `left`, `below`, `above`, `float`
+or `tab`.
+
+==============================================================================
+12. COMMANDS                                                *curlite-commands*
+
+                                                                     *:Curlite*
+:Curlite [subcommand]       With no argument, `send`.
+
+    send        send the request under the cursor
+    all         send every request in the file
+    rest        send every request from the cursor down
+    replay      re-send whatever ran last
+    inspect     show the resolved request and its curl equivalent
+    env         pick the environment
+    pick        jump to a request in this file
+    toggle      toggle the response window
+    open        open it and move the cursor into it
+    close       close it
+    clear       close it, clear the inline status, and forget the session's
+                recorded responses, prompt answers and script globals
+    cancel      kill every in-flight request
+    curl        yank the request under the cursor as a curl command line
+    paste       convert a curl command from the clipboard into a request
+    scratch     open a throwaway `.http` buffer
+    log         open the debug log
+    health      `:checkhealth curlite`
+
+                                                                  *:CurliteRun*
+:CurliteRun [file]          With a file, run every request in it and report the
+                            assertion totals. With no argument, the same as
+                            `:Curlite send`.
+
+==============================================================================
+13. MAPPINGS                                                *curlite-mappings*
+
+Set buffer-locally in every `http` buffer:
+
+    <leader>Rs      send the request under the cursor
+    <leader>Ra      send every request in the file
+    <leader>Rr      replay the last request
+    <leader>Ro      toggle the response window
+    <leader>Re      pick the environment
+    <leader>Rf      jump to a request
+    <leader>Ry      yank the request as a curl command line
+    <leader>Rp      convert a curl command in the clipboard
+    <leader>Ri      inspect the resolved request
+    <leader>Rc      clear
+    ]r  [r          next / previous request
+
+Set any to `false` to drop it, or `keymaps = false` to bind everything
+yourself. `on_attach` is the hook for your own buffer-local maps.
+
+==============================================================================
+14. CONFIGURATION                                      *curlite-configuration*
+
+Defaults, all overridable: >lua
+
+    require("curlite").setup({
+      filetypes = { "http" },
+      filetype = {
+        register = true,
+        extensions = { "rest" },
+        patterns = { [".*%.http%..*"] = "http" },
+      },
+      on_attach = nil,              -- function(bufnr)
+
+      curl = {
+        path = "curl",
+        args = { "--location", "--no-buffer" },
+        timeout = 30000,            -- ms; 0 disables
+        verify_ssl = true,
+        cookie_jar = vim.fn.stdpath("data") .. "/curlite/cookies.txt",
+      },
+
+      request = {
+        substitute_in_response = false,
+        variables_scope = "request", -- or "document"
+        default_headers = { ["User-Agent"] = "curlite.nvim" },
+        infer_content_type = true,
+      },
+
+      ui = {
+        display = "right",          -- right|left|below|above|float|tab
+        width = 88,
+        height = 20,
+        float = { width = 0.8, height = 0.8, border = "rounded" },
+        default_pane = "body",
+        panes = { "body", "headers", "all", "stats", "verbose", "script" },
+        winbar = true,
+        focus = false,
+        reuse = true,
+        wrap = false,
+        number = false,
+        inline_status = true,
+        icons = { ... },
+        highlights = { ... },       -- |curlite-highlights|
+      },
+
+      response = {
+        format = true,
+        indent = 2,
+        filetypes = { json = "json", xml = "xml", ... },
+        max_format_size = 1024 * 1024,
+        show_request = true,
+      },
+
+      env = {
+        files = { "http-client.env.json", "http-client.private.env.json" },
+        dotenv = ".env",
+        default = nil,              -- nil = remember the last choice
+        shared_key = "$shared",
+      },
+
+      scripts = {
+        enable = true,
+        sandbox = true,
+        timeout = 5000,
+      },
+
+      history = { size = 50 },
+
+      keymaps = { ... },            -- |curlite-mappings|
+      result_keymaps = { ... },     -- |curlite-response-window|
+
+      notify = "errors",            -- all|errors|none
+      debug = false,
+    })
+<
+Every field is documented inline in `lua/curlite/config.lua`.
+
+==============================================================================
+15. LUA API                                                      *curlite-api*
+
+>lua
+    local curlite = require("curlite")
+
+    curlite.run_at_cursor()
+    curlite.run_all()
+    curlite.run_from_cursor()
+    curlite.replay()
+    curlite.inspect()
+    curlite.select_env()
+    curlite.current_env()          --> "prod" | nil
+    curlite.pick_request()
+    curlite.goto_request(1)        -- or -1
+    curlite.copy_curl()
+    curlite.paste_curl()
+    curlite.insert_curl(command)
+    curlite.scratchpad()
+    curlite.toggle()
+    curlite.clear()
+    curlite.cancel()
+<
+                                                          *curlite.inline()*
+Run a request headlessly, from a keymap, timer or autocommand: >lua
+
+    require("curlite").inline([[
+    GET https://api.example.com/health
+    Accept: application/json
+    ]], function(result)
+      if result.response.status ~= 200 then
+        vim.notify("service is down", vim.log.levels.ERROR)
+      end
+    end)
+<
+`inline_sync(spec, timeout_ms)` blocks and returns the result instead.
+
+                                                          *curlite.run_file()*
+>lua
+    require("curlite").run_file("tests/api.http", function(summary)
+      print(summary.total, summary.passed, summary.failed)
+    end)
+<
+A result is: >
+
+    {
+      request    = <the request as sent, variables resolved>,
+      raw        = <the request as written in the buffer>,
+      command    = { argv = {...}, stdin = ... },
+      response   = {
+        status, status_text, http_version,
+        headers, header_order, raw_headers, hops,
+        body, json, cookies, stats, duration_ms, verbose,
+      },
+      script     = { logs = {...}, tests = {...} },
+      skipped    = false,
+      aborted    = false,
+      error      = nil,
+      duration_ms = 143.2,
+    }
+<
+The modules are reachable as `curlite.parser`, `curlite.exec`, `curlite.env`,
+`curlite.ui` and `curlite.variables` if you want to build on them.
+
+==============================================================================
+16. COMPLETION                                            *curlite-completion*
+
+For blink.cmp: >lua
+
+    require("blink.cmp").setup({
+      sources = {
+        providers = {
+          curlite = { module = "curlite.blink", name = "curlite" },
+        },
+        per_filetype = { http = { "curlite", "path", "buffer" } },
+      },
+    })
+<
+It completes document variables, environment variables (showing each value),
+script globals, prompt names, the dynamic functions, and — for every named
+request in the file — the `NAME.response.body.$.` chain reference. At the start
+of a line it offers methods and header names; after `Content-Type:` and friends
+it offers plausible values; after `# @` it offers the metadata keys with a
+description of each.
+
+==============================================================================
+17. STATUSLINE                                            *curlite-statusline*
+
+>lua
+    require("lualine").setup({
+      sections = { lualine_x = { "curlite" } },
+    })
+<
+Shows the active environment and the last response's status and time. Options:
+`show_env`, `show_status`, `only_http`, `icon`.
+
+`require("curlite").current_env()` is the building block for any other
+statusline.
+
+==============================================================================
+18. HIGHLIGHTS                                            *curlite-highlights*
+
+Defined as links, so they follow your colorscheme:
+
+    CurliteSuccess       2xx        -> DiagnosticOk
+    CurliteRedirect      3xx        -> DiagnosticInfo
+    CurliteClientError   4xx        -> DiagnosticWarn
+    CurliteServerError   5xx        -> DiagnosticError
+    CurliteRunning                  -> Comment
+    CurliteInline                   -> Comment
+    CurlitePaneActive               -> TabLineSel
+    CurlitePaneInactive             -> TabLine
+    CurliteHeaderName               -> Identifier
+    CurliteHeaderValue              -> String
+    CurliteTestPass                 -> DiagnosticOk
+    CurliteTestFail                 -> DiagnosticError
+
+Change the first six through `ui.highlights`; override any of them with
+`:highlight` for concrete colors.
+
+==============================================================================
+19. COMING FROM KULALA                                        *curlite-kulala*
+
+The file format is the same, so your existing `.http` files and
+`http-client.env.json` work unchanged. What differs:
+
+    scripts             Lua, not JavaScript. `client.global.set`,
+                        `request.skip`, `request.abort` and `client.test` keep
+                        their names; the bodies are Lua.
+                        (|curlite-scripts|)
+    no backend          no companion binary and no tree-sitter CLI. curl is
+                        the only requirement.
+    protocols           HTTP and GraphQL. No gRPC, WebSocket or streaming.
+    OAuth2              no built-in flow; chain a token request instead
+                        (|curlite-auth|)
+    OpenAPI explorer    not included
+    filtering           a jq expression over the body (`/` in the response
+                        window), rather than kulala's filter syntax
+
+Everything else — environments, `$shared`, dynamic variables, request
+chaining, prompts, assertions, the `>>` redirect, `< file` bodies, multipart,
+the scratchpad — behaves the same way.
+
+==============================================================================
+20. TROUBLESHOOTING                                  *curlite-troubleshooting*
+
+`:checkhealth curlite` first.
+
+A request behaves differently here than in a shell ~
+    `<leader>Ri` shows the resolved request and the exact curl command line it
+    becomes. Paste that into a shell and compare. `<leader>Ry` yanks it.
+
+The Verbose pane ~
+    curl's `--verbose` trace, including the TLS handshake and every header
+    actually sent. This is usually where the answer is.
+
+`unresolved variable: x` ~
+    The request was refused rather than sent with a literal `{{x}}`. Either
+    the name is misspelled, no environment is selected (`<leader>Re`), or it
+    refers to a request that hasn't run yet — in which case `# @run` will run
+    it for you.
+
+A form body comes back as a 400 ~
+    Check the Stats pane's `Content type`. `application/x-www-form-urlencoded`
+    bodies have their newlines stripped; anything else is sent verbatim,
+    newlines included.
+
+TLS certificate errors ~
+    `# @insecure` on the request, or `curl.verify_ssl = false` globally.
+
+A debug log ~
+    `debug = true` writes every command line to
+    `stdpath("log")/curlite.log`; `:Curlite log` opens it.
+
+vim:tw=78:ts=8:et:ft=help:norl:

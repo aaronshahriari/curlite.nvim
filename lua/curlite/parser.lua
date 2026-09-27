@@ -197,7 +197,7 @@ end
 ---@return curlite.Document
 function M.parse(lines, source)
   ---@type curlite.Document
-  local doc = { requests = {}, variables = {}, var_lines = {}, source = source }
+  local doc = { requests = {}, variables = {}, var_lines = {}, imports = {}, source = source }
 
   local req = new_request()
   local have_request = false          -- seen a request line in this section
@@ -338,6 +338,15 @@ function M.parse(lines, source)
         elseif mkey == "assert" then
           pending_meta.asserts = pending_meta.asserts or {}
           table.insert(pending_meta.asserts, mvalue)
+        elseif mkey == "run" then
+          -- `# @run LOGIN` -- send that request first. Several are run in the
+          -- order they are declared.
+          pending_meta.run = pending_meta.run or {}
+          table.insert(pending_meta.run, mvalue)
+        elseif mkey == "import" then
+          -- Document-level, not request-level: an import applies to the whole
+          -- file no matter where it appears.
+          table.insert(doc.imports, mvalue)
         else
           -- Bare flags (`# @insecure`, `# @no-redirect`) become `true`.
           pending_meta[mkey] = mvalue ~= "" and mvalue or true

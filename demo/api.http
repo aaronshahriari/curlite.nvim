@@ -1,0 +1,187 @@
+# A tour of everything curlite understands. Every request here runs against
+# httpbin.org, so you can send them as-is.
+#
+# Set the environment with  <leader>Re  (or `:Curlite env`) -- the definitions
+# live in demo/http-client.env.json next to this file.
+#
+# Send the request under the cursor with  <leader>Rs
+# Send every request in the file with     <leader>Ra
+
+@apiBase = {{host}}/anything
+@traceId = {{$uuid}}
+
+
+### SIMPLE_GET
+# The plainest thing there is.
+GET {{host}}/get?page=1
+Accept: application/json
+
+
+### QUERY_CONTINUATION
+# A long query string, one parameter per line. Lines starting with `?` or `&`
+# after some whitespace are appended to the URL.
+GET {{host}}/get
+  ?q=neovim
+  &lang=lua
+  &limit=25
+Accept: application/json
+
+
+### JSON_BODY
+# The Content-Type is inferred from a body that parses as JSON, so the header
+# below is optional -- it's here for clarity.
+POST {{apiBase}}
+Content-Type: application/json
+X-Trace-Id: {{traceId}}
+
+{
+  "name": "aaron",
+  "created": "{{$isoTimestamp}}",
+  "nonce": {{$randomInt 1000 9999}},
+  "tags": ["neovim", "curl"]
+}
+
+
+### FORM_BODY
+# Form bodies are written one parameter per line for readability; curlite
+# joins them back onto one line before sending.
+POST {{apiBase}}
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_id={{clientId}}
+&scope=read write
+
+
+### LOGIN
+# Name a request, and later requests can read its response.
+POST {{apiBase}}
+Content-Type: application/json
+
+{ "token": "tok-{{$randomHex 8}}", "expires_in": 3600 }
+
+> {%
+  -- Post-request scripts are Lua. Anything you stash in `client.global`
+  -- outlives the request and is available as `{{name}}` everywhere after.
+  client.global.set("token", response.json.json.token)
+  client.log("captured " .. response.json.json.token)
+%}
+
+# @assert status == 200
+# @assert json.json.expires_in == 3600
+
+
+### AUTHENTICATED
+# Two ways to reach LOGIN's token: the global the script set, or the response
+# directly. The second form needs no script at all.
+# @run LOGIN
+GET {{host}}/bearer
+Authorization: Bearer {{token}}
+
+# @assert status == 200
+# @assert json.token == headers["x-echo"] or true
+
+
+### CHAINED_WITHOUT_A_SCRIPT
+GET {{host}}/get?token={{LOGIN.response.body.$.json.token}}
+Accept: application/json
+
+
+### PROMPTED
+# Asked for once per session, then remembered.
+# @prompt pin Enter a 4-digit PIN
+POST {{apiBase}}
+Content-Type: application/json
+
+{ "pin": "{{pin}}" }
+
+
+### BASIC_AUTH
+# `Basic user pass` is base64-encoded for you. A value that is already base64
+# is passed through untouched.
+GET {{host}}/basic-auth/aaron/hunter2
+Authorization: Basic aaron hunter2
+
+# @assert status == 200
+
+
+### GRAPHQL
+# The query, a blank line, then the variables as JSON. curlite builds the
+# `{"query": ..., "variables": ...}` payload.
+GRAPHQL {{host}}/anything
+
+query User($id: ID!) {
+  user(id: $id) {
+    name
+    email
+  }
+}
+
+{ "id": "42" }
+
+
+### MULTIPART
+POST {{host}}/post
+Content-Type: multipart/form-data; boundary=CurliteBoundary
+
+--CurliteBoundary
+Content-Disposition: form-data; name="title"
+
+A file upload
+--CurliteBoundary
+Content-Disposition: form-data; name="doc"; filename="notes.txt"
+Content-Type: text/plain
+
+< ./notes.txt
+--CurliteBoundary--
+
+
+### SAVE_TO_DISK
+# `>>!` writes the response body to a file, overwriting it. `>>` refuses to.
+GET {{host}}/json
+
+>>! ./last-response.json
+
+
+### SLOW_WITH_A_TIMEOUT
+# @timeout 1500
+GET {{host}}/delay/5
+
+
+### REDIRECTS
+# Every hop shows up in the Headers pane; `# @no-redirect` stops at the first.
+GET {{host}}/redirect/3
+
+
+### STATUS_CODES
+# @assert status == 418
+GET {{host}}/status/418
+
+
+### SKIPPED
+# @skip
+DELETE {{host}}/anything/dangerous
+
+
+### DYNAMIC_VARIABLES
+# A reference for what's available. Send it and read the echoed body.
+POST {{apiBase}}
+Content-Type: application/json
+
+{
+  "uuid":        "{{$uuid}}",
+  "timestamp":   "{{$timestamp}}",
+  "yesterday":   "{{$timestamp -1 d}}",
+  "iso":         "{{$isoTimestamp}}",
+  "rfc1123":     "{{$datetime rfc1123}}",
+  "date":        "{{$date}}",
+  "custom_date": "{{$date %d/%m/%Y}}",
+  "randomInt":   {{$randomInt 1 100}},
+  "alnum":       "{{$randomAlphaNumeric 12}}",
+  "hex":         "{{$randomHex 8}}",
+  "email":       "{{$randomEmail}}",
+  "name":        "{{$randomFullName}}",
+  "intellij":    {{$random.integer(1, 10)}},
+  "from_env":    "{{$env.HOME}}",
+  "from_shell":  "{{$exec echo hello-from-a-shell}}"
+}

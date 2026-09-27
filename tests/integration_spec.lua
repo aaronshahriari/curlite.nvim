@@ -441,4 +441,167 @@ function M.stats_are_populated(t)
   t.truthy(s.remote_ip == "127.0.0.1")
 end
 
+function M.skip_metadata_skips_without_error(t)
+  local r = run("# @skip\nGET %BASE%/json\n")
+  t.truthy(r.skipped)
+  t.eq(r.error, nil)
+  t.eq(r.response, nil)
+end
+
+function M.run_metadata_sends_the_dependency_first(t)
+  if not server_up() then
+    return
+  end
+  variables.reset()
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  require("curlite.util").write_file(
+    dir .. "/api.http",
+    ([[
+### LOGIN
+GET %s/json
+
+> {%% client.global.set("tok", response.json.slideshow.title) %%}
+
+### ME
+# @run LOGIN
+GET %s/echo?tok={{tok}}
+]]):format(BASE, BASE)
+  )
+
+  local doc = parser.parse_file(dir .. "/api.http")
+  local order = {}
+  local done = false
+  exec.send(doc.requests[2], {
+    on_dependency = function(result)
+      table.insert(order, result.raw.name)
+    end,
+    on_done = function(result)
+      table.insert(order, result.raw.name)
+      M._chain_result = result
+      done = true
+    end,
+  })
+  vim.wait(20000, function()
+    return done
+  end, 20)
+
+  t.eq(order, { "LOGIN", "ME" })
+  t.eq(M._chain_result.response.json.query.tok, "Sample Slide Show")
+  variables.reset()
+  env.globals = {}
+end
+
+function M.run_metadata_cycle_terminates(t)
+  if not server_up() then
+    return
+  end
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  require("curlite.util").write_file(
+    dir .. "/cycle.http",
+    ([[
+### A
+# @run B
+GET %s/echo?r=a
+
+### B
+# @run A
+GET %s/echo?r=b
+]]):format(BASE, BASE)
+  )
+  local doc = parser.parse_file(dir .. "/cycle.http")
+  local done, count = false, 0
+  exec.send(doc.requests[1], {
+    on_dependency = function()
+      count = count + 1
+    end,
+    on_done = function()
+      count = count + 1
+      done = true
+    end,
+  })
+  t.truthy(vim.wait(20000, function()
+    return done
+  end, 20), "a @run cycle must terminate")
+  -- B runs once, then A; A's own `@run B` is already in the chain.
+  t.eq(count, 2)
+end
+
+function M.run_metadata_failure_blocks_the_request(t)
+  if not server_up() then
+    return
+  end
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  require("curlite.util").write_file(
+    dir .. "/dep.http",
+    ([[
+### BROKEN
+GET http://127.0.0.1:1/nope
+
+### NEEDS_IT
+# @run BROKEN
+GET %s/json
+]]):format(BASE)
+  )
+  local doc = parser.parse_file(dir .. "/dep.http")
+  local done, got = false, nil
+  exec.send(doc.requests[2], {
+    on_done = function(result)
+      got = result
+      done = true
+    end,
+  })
+  vim.wait(20000, function()
+    return done
+  end, 20)
+  t.truthy(got.skipped)
+  t.match(got.error, "dependency failed")
+  t.eq(got.response, nil)
+end
+
+function M.import_makes_another_files_requests_runnable(t)
+  if not server_up() then
+    return
+  end
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  require("curlite.util").write_file(
+    dir .. "/shared.http",
+    ([[
+### AUTH
+GET %s/json
+
+> {%% client.global.set("shared_tok", "from-import") %%}
+]]):format(BASE)
+  )
+  require("curlite.util").write_file(
+    dir .. "/main.http",
+    ([[
+# @import ./shared.http
+
+### USE
+# @run AUTH
+GET %s/echo?tok={{shared_tok}}
+]]):format(BASE)
+  )
+
+  local doc = parser.parse_file(dir .. "/main.http")
+  t.eq(doc.imports, { "./shared.http" })
+
+  local done, got = false, nil
+  exec.send(doc.requests[1], {
+    on_done = function(result)
+      got = result
+      done = true
+    end,
+  })
+  vim.wait(20000, function()
+    return done
+  end, 20)
+  t.eq(got.response.json.query.tok, "from-import")
+  env.globals = {}
+end
+
 return M

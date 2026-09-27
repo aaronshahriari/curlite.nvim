@@ -45,6 +45,51 @@ local next_id = 0
 ---@field force_prompts boolean|nil  re-ask `# @prompt` values
 ---@field record boolean|nil         default true
 
+--- Every request reachable from a document, including the ones its
+--- `# @import`ed files define. Imports are followed depth-first, at most
+--- `MAX_IMPORT_DEPTH` levels, and a file already seen is skipped so two files
+--- importing each other can't loop.
+---@param doc curlite.Document
+---@param seen table<string, boolean>|nil
+---@param depth integer|nil
+---@return table<string, curlite.Request>  name -> request
+function M.resolve_imports(doc, seen, depth)
+  seen = seen or {}
+  depth = depth or 0
+  local out = {}
+
+  for _, req in ipairs(doc.requests) do
+    if req.name and req.name ~= "" then
+      out[req.name] = req
+    end
+  end
+
+  if depth >= 5 then
+    return out
+  end
+
+  for _, rel in ipairs(doc.imports or {}) do
+    local path = util.resolve_path(rel, doc.source)
+    if not seen[path] then
+      seen[path] = true
+      local imported, ierr = require("curlite.parser").parse_file(path)
+      if not imported then
+        util.warn(("curlite: @import %s: %s"):format(rel, ierr))
+      else
+        -- The importing file wins on a name clash, so a local override of an
+        -- imported request behaves the way you would expect.
+        for name, req in pairs(M.resolve_imports(imported, seen, depth + 1)) do
+          if out[name] == nil then
+            out[name] = req
+          end
+        end
+      end
+    end
+  end
+
+  return out
+end
+
 --- Resolve a request into something sendable, without sending it.
 ---@param raw curlite.Request
 ---@param opts curlite.SendOpts|nil
@@ -52,9 +97,6 @@ local next_id = 0
 function M.prepare(raw, opts)
   opts = opts or {}
 
-  if raw.metadata and (raw.metadata.skip or raw.metadata.disabled) then
-    return nil, "request is marked @skip"
-  end
 
   if not variables.resolve_prompts(raw, opts.force_prompts) then
     return nil, "cancelled"
@@ -101,6 +143,30 @@ function M.prepare(raw, opts)
   return cmd, nil, resolved, pre
 end
 
+--- Every named request a `# @run` on this request could refer to: the ones in
+--- its own file plus everything its imports pull in.
+---
+--- The live buffer is preferred over the file on disk, so a `# @run` against a
+--- request you just typed and haven't saved still resolves.
+---@param raw curlite.Request
+---@return table<string, curlite.Request>
+function M.lookup_requests(raw)
+  if not raw.source or raw.source == "" then
+    return {}
+  end
+
+  local parser = require("curlite.parser")
+
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) and vim.api.nvim_buf_get_name(buf) == raw.source then
+      return M.resolve_imports(parser.parse_buffer(buf))
+    end
+  end
+
+  local doc = parser.parse_file(raw.source)
+  return doc and M.resolve_imports(doc) or {}
+end
+
 --- Send one request.
 ---@param raw curlite.Request
 ---@param opts curlite.SendOpts|nil
@@ -114,6 +180,78 @@ function M.send(raw, opts)
       vim.schedule(function()
         opts.on_done(result)
       end)
+    end
+  end
+
+  -- `# @skip` is a skip, not a failure: a "send all" run should step over it
+  -- quietly rather than report an error for every one.
+  if raw.metadata and (raw.metadata.skip or raw.metadata.disabled) then
+    finish({
+      request = raw,
+      raw = raw,
+      command = nil,
+      response = nil,
+      script = nil,
+      skipped = true,
+      aborted = false,
+      error = nil,
+      duration_ms = 0,
+    })
+    return nil
+  end
+
+  -- `# @run LOGIN` sends LOGIN first, so a request that needs a fresh token
+  -- can declare that instead of you remembering to fire two requests.
+  local chain = opts._chain or {}
+  local deps = raw.metadata and raw.metadata.run
+  if deps and #deps > 0 then
+    local next_chain = vim.deepcopy(chain)
+    if raw.name then
+      next_chain[raw.name] = true
+    end
+
+    local pending, available = {}, nil
+    for _, name in ipairs(deps) do
+      if not chain[name] and not next_chain[name] then
+        available = available or M.lookup_requests(raw)
+        local dep = available[name]
+        if dep then
+          next_chain[name] = true
+          table.insert(pending, dep)
+        else
+          util.warn(("curlite: @run %s -- no request by that name"):format(name))
+        end
+      end
+    end
+
+    if #pending > 0 then
+      local self_opts = vim.tbl_extend("force", opts, { _chain = next_chain })
+      M.send_sequence(pending, {
+        bufnr = opts.bufnr,
+        _chain = next_chain,
+        on_each = opts.on_dependency,
+        on_finish = function(results)
+          -- An aborted or failed dependency means this request should not run.
+          for _, r in ipairs(results) do
+            if r.aborted or r.error then
+              finish({
+                request = raw,
+                raw = raw,
+                command = nil,
+                response = nil,
+                script = nil,
+                skipped = true,
+                aborted = r.aborted or false,
+                error = r.error and ("dependency failed: %s"):format(r.error) or nil,
+                duration_ms = 0,
+              })
+              return
+            end
+          end
+          M.send(raw, self_opts)
+        end,
+      })
+      return nil
     end
   end
 
@@ -274,6 +412,7 @@ function M.send_sequence(requests, opts)
 
     M.send(req, {
       bufnr = opts.bufnr,
+      _chain = opts._chain,
       on_done = function(result)
         table.insert(results, result)
         if opts.on_each then
