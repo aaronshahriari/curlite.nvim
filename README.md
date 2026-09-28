@@ -226,7 +226,28 @@ Cycles terminate, and a failed dependency blocks the request that needed it.
 ╰─ <CR> select   q cancel ╯ ╰────────────────────────────────────────╯
 ```
 
-The right-hand pane is what that environment actually resolves to — the shared block merged with its own values, every line marked with where it came from — so you choose by looking at the host rather than by remembering what `dev2` meant. `(no environment)` clears the selection and shows the shared block alone; choosing it counts as a choice, so sends stop asking.
+The right-hand pane is what that environment actually resolves to — the shared block merged with its own values, every line marked with where it came from — so you choose by looking at the host rather than by remembering what `dev2` meant. It is rebuilt as you move, so it is a live view of the file rather than a snapshot. `(no environment)` clears the selection and shows the shared block alone; choosing it counts as a choice, so sends stop asking.
+
+With [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) installed that is a telescope picker — fuzzy-findable, and laid out the way the rest of your telescope pickers are — with the same list and the same live JSON preview:
+
+```
+╭─ Environment ─────────────────────────────────────────────────────────────╮
+│ > ● prod             2 vars, 2 headers │ {                                │
+│     dev              3 vars, 1 header  │   "apiVersion": "v1", $curliteshared
+│     (no environment) 1 var,  1 header  │   "host": "https://api.example.com"
+│                                        │ }                     prod       │
+│ > prod                                 │                                  │
+│                                        │ -- sent with every request       │
+│                                        │ --   Accept: application/json  $curliteshared
+│                                        │ --   Authorization: Bearer {{tok}}  prod
+╰───────────────────────────────────────────────────────────────────────────╯
+```
+
+curlite depends on no plugin, so without telescope it opens the window above instead. `ui.picker.backend` decides — `"auto"` (the default), `"telescope"` or `"builtin"` — and `ui.picker.telescope` passes a layout or theme through. There's an extension too, if you drive everything from `:Telescope`:
+
+```lua
+require("telescope").load_extension("curlite")  -- :Telescope curlite
+```
 
 Set `env.default` to a name if you want one active without being asked, or `env.require_selection = false` to let requests run with only the shared variables. A `.env` in the same directories is read too, as `{{$dotenv NAME}}`.
 
@@ -534,6 +555,8 @@ require("curlite").setup({
     height = 0.5,                          -- fraction or rows, above/below
     float = { width = 0.8, height = 0.8, border = "rounded" },
     picker = {                             -- the environment picker
+      backend = "auto",                    -- telescope when installed, else built-in
+      telescope = {},                      -- passed to telescope's picker
       width = 0.8, height = 0.7,           -- fractions of the editor
       list_width = 0.3,                    -- the rest previews the variables
       border = "rounded",

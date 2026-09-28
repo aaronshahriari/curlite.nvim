@@ -232,6 +232,20 @@ local function check_config()
     vim.health.info("cookie jar disabled — sessions won't carry between requests")
   end
 
+  local backend = (cfg.ui.picker or {}).backend or "auto"
+  local has_telescope = require("curlite.telescope").available()
+  if backend == "builtin" then
+    vim.health.ok("environment picker: built-in")
+  elseif has_telescope then
+    vim.health.ok("environment picker: telescope")
+  elseif backend == "telescope" then
+    vim.health.warn("picker.backend is \"telescope\" but telescope.nvim is not installed", {
+      "the built-in picker is used instead; set `ui.picker.backend = \"auto\"` to stop asking",
+    })
+  else
+    vim.health.ok("environment picker: built-in (telescope.nvim is not installed)")
+  end
+
   if cfg.scripts.enable then
     vim.health.ok(("scripts enabled (sandbox: %s)"):format(cfg.scripts.sandbox and "on" or "off"))
   else

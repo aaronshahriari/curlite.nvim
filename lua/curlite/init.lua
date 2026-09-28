@@ -397,6 +397,9 @@ function M.select_env(opts)
 
   require("curlite.picker").open({
     source = source,
+    -- Passed straight through to the telescope front end, so a caller can
+    -- hand it a theme or a layout without going near the config.
+    telescope = opts.telescope,
     on_choice = function(name)
       env.select(name, source)
       if not opts.quiet then

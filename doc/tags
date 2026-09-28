@@ -25,6 +25,7 @@ curlite-display	curlite.txt	/*curlite-display*
 curlite-dynamic	curlite.txt	/*curlite-dynamic*
 curlite-env-headers	curlite.txt	/*curlite-env-headers*
 curlite-env-selecting	curlite.txt	/*curlite-env-selecting*
+curlite-env-telescope	curlite.txt	/*curlite-env-telescope*
 curlite-environments	curlite.txt	/*curlite-environments*
 curlite-files	curlite.txt	/*curlite-files*
 curlite-filter	curlite.txt	/*curlite-filter*

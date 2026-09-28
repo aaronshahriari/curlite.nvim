@@ -472,13 +472,45 @@ Pick with `<leader>Re` or `:Curlite env`. The picker shows the environments on
 the left and, on the right, the variables the highlighted one resolves to —
 the shared block merged with its own values, pretty-printed, each top-level
 key marked with where it came from, and under them the headers it adds to
-every request (|curlite-env-headers|). That is the point of it: you choose by
-reading the host you are about to send to rather than by remembering which
-name meant which stack.
+every request (|curlite-env-headers|). The preview is rebuilt for whichever
+entry is highlighted, so it is a live view of the file rather than a snapshot.
+That is the point of it: you choose by reading the host you are about to send
+to rather than by remembering which name meant which stack.
+
+                                                        *curlite-env-telescope*
+With telescope.nvim installed that is a telescope picker, so the list is
+fuzzy-findable and follows whatever layout and theme you have set for
+everything else; without it, curlite opens a window of its own. Either way the
+list, the preview and the proportions are the same, and curlite depends on no
+plugin. `ui.picker.backend` decides: >lua
+
+    ui = {
+      picker = {
+        backend = "auto",       -- telescope when installed, else built-in
+        -- backend = "builtin", -- always curlite's own window
+        -- backend = "telescope",
+        telescope = {           -- passed to telescope's picker
+          layout_strategy = "vertical",
+        },
+      },
+    }
+<
+`:checkhealth curlite` says which one you are getting.
+
+There is a telescope extension too, for driving it from `:Telescope`: >lua
+
+    require("telescope").load_extension("curlite")
+<
+    :Telescope curlite                  the environment picker
+    :Telescope curlite theme=dropdown   with a theme
+
+Keys in the built-in picker:
 
     <CR>          take the highlighted environment
     j k           move, previewing as you go
     q  <Esc>      leave the selection as it was
+
+The telescope one uses your telescope mappings.
 
 The first entry, `(no environment)`, previews the shared block alone and
 selects nothing. Choosing it counts as having chosen, so sends stop asking.
@@ -1252,6 +1284,19 @@ are all covered in |curlite-response-window| and |curlite-display|.
     drops the variable pane and leaves a plain list of names. Defaults `0.8`,
     `0.7`, `0.3`, `"rounded"`, `true`. It is large on purpose; see
     |curlite-env-selecting|.
+
+`ui.picker.backend` ~
+    Which front end opens it. `"auto"` (default) uses telescope.nvim when it
+    is installed and curlite's own window otherwise; `"telescope"` asks for
+    telescope and says so if it is missing; `"builtin"` never reaches for it.
+    The geometry above applies to both. See |curlite-env-telescope|.
+
+`ui.picker.telescope` ~
+    Passed to telescope's picker and merged over curlite's defaults: a
+    `layout_strategy`, a `layout_config`, a theme's fields, anything
+    `telescope.pickers.new` accepts. Note that curlite sets
+    `preview_cutoff = 0`, because telescope would otherwise hide the variables
+    below 120 columns and the variables are what you are choosing by.
 
 `ui.icons` ~
     Single characters shown beside a status, in the winbar and in the inline

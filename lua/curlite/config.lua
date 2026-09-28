@@ -96,7 +96,15 @@ M.defaults = {
     -- resolves to, so you pick by looking at the values rather than by
     -- remembering which name means which host.
     picker = {
-      -- Fractions of the editor, or absolute cell counts above 1.
+      -- Which front end opens it.
+      --   "auto"      -- telescope when it is installed, the built-in window
+      --                  otherwise. curlite depends on no plugin, so there is
+      --                  always something to fall back to.
+      --   "telescope" -- telescope, warning if it is missing
+      --   "builtin"   -- always the built-in window
+      backend = "auto",
+      -- Fractions of the editor, or absolute cell counts above 1. Both front
+      -- ends use these, so switching between them keeps the same shape.
       width = 0.8,
       height = 0.7,
       -- How much of that width the list of names takes; the rest previews the
@@ -105,6 +113,10 @@ M.defaults = {
       border = "rounded",
       -- Show the variable preview at all. False leaves a plain, narrow list.
       preview = true,
+      -- Passed to telescope's picker, merged over curlite's defaults: a
+      -- `layout_strategy`, a `layout_config`, a theme's fields, anything
+      -- `telescope.pickers.new` accepts.
+      telescope = {},
     },
     -- Which pane the response opens on. Select with `B`/`H`/`A`/`S`/`V`/`O`.
     --   "body" | "headers" | "all" | "stats" | "verbose" | "script"

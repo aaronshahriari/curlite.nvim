@@ -160,9 +160,35 @@ function M.preview_lines(source, name)
   return lines, origins
 end
 
---- Open the picker.
+--- Open the picker, through whichever front end is configured.
+---
+--- `ui.picker.backend` is "auto" by default: telescope when it is installed,
+--- the built-in window otherwise. curlite depends on no plugin, so the
+--- built-in one is always there to fall back to.
 ---@param opts { source: string|nil, on_choice: fun(name: string|nil) }
 function M.open(opts)
+  local backend = (config.get().ui.picker or {}).backend or "auto"
+
+  if backend ~= "builtin" then
+    local telescope = require("curlite.telescope")
+    if telescope.available() then
+      return telescope.open(opts)
+    end
+    if backend == "telescope" then
+      require("curlite.util").emit(
+        "warn",
+        "curlite: picker.backend is \"telescope\" but telescope is not installed — using the built-in picker"
+      )
+    end
+  end
+
+  return M.open_builtin(opts)
+end
+
+--- The built-in two-pane window: names on the left, the variables that name
+--- resolves to on the right.
+---@param opts { source: string|nil, on_choice: fun(name: string|nil) }
+function M.open_builtin(opts)
   opts = opts or {}
   local source = opts.source
   local names = env.names(source)
