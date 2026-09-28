@@ -20,12 +20,17 @@
 local M = {}
 
 --- LSP `CompletionItemKind`, for the engines that want numbers.
+---
+--- Nothing here is `Function` (3) or `Method` (2), and nothing should be:
+--- those two mean "callable" to a completion engine, and blink.cmp's
+--- auto-brackets appends `()` to them. An HTTP method is a keyword of the
+--- format, not a call -- tagging `GET` as `Method` is what produced `GET ()`
+--- on accept -- and `{{$uuid}}` is written without parentheses too.
 M.KIND = {
   Text = 1,
-  Method = 2,
-  Function = 3,
   Field = 5,
   Variable = 6,
+  Value = 12,
   Keyword = 14,
   EnumMember = 20,
   Constant = 21,
@@ -240,7 +245,7 @@ function M.variable_items(bufnr)
   local source_path = vim.api.nvim_buf_get_name(bufnr)
 
   for _, spec in ipairs(M.DYNAMIC) do
-    table.insert(items, item(spec[1], M.KIND.Function, spec[2]))
+    table.insert(items, item(spec[1], M.KIND.Value, spec[2]))
   end
 
   -- Environment variables, labelled with where each one comes from: the
@@ -435,7 +440,7 @@ function M.items(ctx, bufnr)
     end
   elseif ctx.kind == "line_start" then
     for _, method in ipairs(M.METHODS) do
-      table.insert(items, item(method, M.KIND.Method, "request method", method .. " "))
+      table.insert(items, item(method, M.KIND.Keyword, "request method", method .. " "))
     end
     for _, name in ipairs(M.HEADERS) do
       table.insert(items, item(name, M.KIND.Field, "header", name .. ": "))

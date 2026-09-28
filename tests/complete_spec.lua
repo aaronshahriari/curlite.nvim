@@ -114,6 +114,40 @@ function M.an_unfinished_path_keeps_the_cursor_inside(t)
   t.eq(status.curlite.back, 0, "a finished one does not")
 end
 
+-- blink.cmp's auto-brackets appends `()` to every item whose kind is
+-- `Function` or `Method`, because those mean "callable". Nothing curlite
+-- offers is callable: `GET` tagged as `Method` is what produced `GET ()`.
+function M.nothing_is_offered_as_a_callable(t)
+  local buf = project({
+    ["http-client.env.json"] = [[{ "$curliteshared": { "host": "https://x.dev" } }]],
+    ["api.http"] = "### LOGIN\nPOST https://x.dev\n\nGET {{\n",
+  }, "api.http")
+  vim.api.nvim_win_set_buf(0, buf)
+
+  local CALLABLE = { [2] = "Method", [3] = "Function" }
+  local sites = {
+    { "", 0 },              -- methods and header names
+    { "GET {{", 6 },        -- variables and the `$` helpers
+    { "# @", 3 },           -- metadata
+    { "Accept: ", 8 },      -- header values
+  }
+  for _, site in ipairs(sites) do
+    for _, entry in ipairs(complete.items(complete.context(site[1], site[2]), buf)) do
+      t.falsy(
+        CALLABLE[entry.kind],
+        ("%q offers %q as %s, which blink would append `()` to")
+          :format(site[1], entry.label, CALLABLE[entry.kind] or "?")
+      )
+    end
+  end
+
+  -- And the two that used to be.
+  local methods = complete.items(complete.context("", 0), buf)
+  t.eq(find(methods, "GET").kind, complete.KIND.Keyword, "a method is a keyword")
+  local vars = complete.items(complete.context("GET {{", 6), buf)
+  t.eq(find(vars, "$uuid").kind, complete.KIND.Value, "a dynamic helper yields a value")
+end
+
 function M.only_variables_are_wrapped(t)
   -- A header or a method is not a `{{...}}`, and must not grow braces.
   local items = complete.items(complete.context("", 0), 0)
