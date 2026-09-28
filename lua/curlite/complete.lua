@@ -321,14 +321,51 @@ function M.variable_items(bufnr)
   return deduped
 end
 
+--- A variable completes to the whole `{{name}}`, braces included.
+---
+--- Inserting the bare name leaves you with `{{host` and two braces to close by
+--- hand, which is what makes completion inside `{{` feel broken. Each item
+--- carries the text to insert and the exact range to replace; the blink and
+--- cmp adapters turn that into a `textEdit`, and `omnifunc` reads it directly.
+---
+--- `label` stays the bare name so the menu reads as a list of variables and so
+--- an engine's own filtering has something sensible to match against.
+---@param items table[]
+---@param ctx table
+---@return table[]
+function M.wrap_variables(items, ctx)
+  for _, entry in ipairs(items) do
+    local label = entry.label
+    -- A path still being written -- `LOGIN.response.body.$.` -- keeps the
+    -- cursor between the braces so you can go on typing it. A finished name
+    -- puts the cursor after them, ready for whatever comes next.
+    local open_ended = label:sub(-1) == "."
+    entry.insertText = ("{{%s}}"):format(label)
+    entry.filterText = label
+    entry.curlite = {
+      start = ctx.replace_start,
+      stop = ctx.replace_end,
+      -- Bytes to step back from the end of the inserted text.
+      back = open_ended and 2 or 0,
+    }
+  end
+  return items
+end
+
 --- ---------------------------------------------------------------- context
 
 --- What is being completed at `col` (a 0-based byte offset) on `line`.
 ---
+--- For a variable, `replace_start`/`replace_end` span the whole `{{...}}` and
+--- not just the name: a completion engine left to guess the range on its own
+--- stops at `$` and `.` (blink's keyword for `{{auth.cl` is `cl`), so
+--- accepting `auth.client_id` would write `{{auth.auth.client_id`. Naming the
+--- range outright is what lets the item be inserted with its braces.
+---
 ---@param line string
 ---@param col integer  bytes before the cursor
----@return { kind: string, prefix: string, start: integer }|nil
----        `start` is the 0-based byte column the completion replaces from.
+---@return { kind: string, prefix: string, start: integer, replace_start: integer, replace_end: integer }|nil
+---        columns are 0-based byte offsets; `replace_end` is exclusive.
 function M.context(line, col)
   local before = line:sub(1, col)
 
@@ -339,7 +376,19 @@ function M.context(line, col)
     local inner = before:sub(open + 2)
     if not inner:find("}}", 1, true) then
       local prefix = inner:match("[%w_%.%$%-]*$") or ""
-      return { kind = "variable", prefix = prefix, start = col - #prefix }
+      -- Absorb a closing brace pair sitting right after the cursor, so
+      -- re-completing inside a finished `{{host}}` -- or completing into the
+      -- `{{}}` an autopair plugin just made -- replaces it instead of
+      -- leaving `{{token}}}}` behind.
+      local after = line:sub(col + 1)
+      local trailing = #(after:match("^}}") or after:match("^}") or "")
+      return {
+        kind = "variable",
+        prefix = prefix,
+        start = col - #prefix,
+        replace_start = open - 1,
+        replace_end = col + trailing,
+      }
     end
   end
 
@@ -375,7 +424,7 @@ function M.items(ctx, bufnr)
   end
 
   if ctx.kind == "variable" then
-    return M.variable_items(bufnr)
+    return M.wrap_variables(M.variable_items(bufnr), ctx)
   elseif ctx.kind == "metadata" then
     for _, spec in ipairs(M.METADATA) do
       table.insert(items, item(spec[1], M.KIND.Keyword, spec[2]))
@@ -421,6 +470,11 @@ end
 
 --- --------------------------------------------------------------- omnifunc
 
+-- Bytes of `}}` sitting after the cursor that the pending omni completion is
+-- meant to replace. Vim only ever replaces up to the cursor, so the rest is
+-- cleaned up on `CompleteDone`.
+local pending_trailing = 0
+
 --- `omnifunc` implementation: `setlocal omnifunc=v:lua.require'curlite.complete'.omnifunc`
 ---@param findstart integer
 ---@param base string
@@ -431,8 +485,19 @@ function M.omnifunc(findstart, base)
 
   if findstart == 1 then
     local ctx = M.context(line, col)
-    -- -3 keeps the menu from opening at all where nothing applies.
-    return ctx and ctx.start or -3
+    if not ctx then
+      -- -3 keeps the menu from opening at all where nothing applies.
+      pending_trailing = 0
+      return -3
+    end
+    -- A variable is replaced from its `{{`, because that is what the item
+    -- rewrites. Everything else starts where the word does.
+    if ctx.kind == "variable" then
+      pending_trailing = ctx.replace_end - col
+      return ctx.replace_start
+    end
+    pending_trailing = 0
+    return ctx.start
   end
 
   -- Where the cursor sits for the second call is not something to rely on:
@@ -440,9 +505,13 @@ function M.omnifunc(findstart, base)
   -- have it at the start column instead. Both readings are tried, and `base`
   -- does the filtering either way.
   local ctx = M.context(line, col) or M.context(line, col + #base)
+  -- For a variable, `base` starts at the `{{` because that is where
+  -- `findstart` pointed; the names to match it against do not.
+  local needle = (base:gsub("^{{", "")):lower()
+
   local out = {}
   for _, entry in ipairs(M.items(ctx, 0)) do
-    if base == "" or entry.label:lower():sub(1, #base) == base:lower() then
+    if needle == "" or entry.label:lower():sub(1, #needle) == needle then
       table.insert(out, {
         word = entry.insertText or entry.label,
         abbr = entry.label,
@@ -451,10 +520,34 @@ function M.omnifunc(findstart, base)
         -- Everything here is a single completion; re-scanning the buffer for
         -- the same word would only duplicate it.
         dup = 0,
+        user_data = entry.curlite and vim.json.encode(entry.curlite) or nil,
       })
     end
   end
   return out
+end
+
+--- Tidy up after an omni completion Vim could only half-apply: drop the `}}`
+--- the inserted item already carries, and step back inside the braces for a
+--- path that is still being written.
+function M.complete_done()
+  local completed = vim.v.completed_item
+  if type(completed) ~= "table" or not completed.word then
+    return
+  end
+
+  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+  local line = vim.api.nvim_get_current_line()
+
+  if pending_trailing > 0 and line:sub(col + 1, col + pending_trailing):match("^}+$") then
+    vim.api.nvim_buf_set_text(0, row - 1, col, row - 1, col + pending_trailing, { "" })
+  end
+  pending_trailing = 0
+
+  local ok, data = pcall(vim.json.decode, completed.user_data or "")
+  if ok and type(data) == "table" and (data.back or 0) > 0 then
+    vim.api.nvim_win_set_cursor(0, { row, math.max(col - data.back, 0) })
+  end
 end
 
 --- ----------------------------------------------------------------- attach
@@ -526,6 +619,18 @@ function M.attach(bufnr)
     end)
   end
 
+  local group = vim.api.nvim_create_augroup("curlite_complete_" .. bufnr, { clear = true })
+
+  -- Registered whether or not the menu opens by itself: `<C-x><C-o>` by hand
+  -- needs the same tidying up.
+  vim.api.nvim_create_autocmd("CompleteDone", {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      M.complete_done()
+    end,
+  })
+
   if cfg.auto_trigger == false or engine_loaded() then
     return
   end
@@ -535,7 +640,6 @@ function M.attach(bufnr)
     return
   end
 
-  local group = vim.api.nvim_create_augroup("curlite_complete_" .. bufnr, { clear = true })
   vim.api.nvim_create_autocmd("TextChangedI", {
     group = group,
     buffer = bufnr,

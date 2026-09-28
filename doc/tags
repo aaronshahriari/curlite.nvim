@@ -7,6 +7,7 @@ curlite-auth	curlite.txt	/*curlite-auth*
 curlite-chaining	curlite.txt	/*curlite-chaining*
 curlite-commands	curlite.txt	/*curlite-commands*
 curlite-completion	curlite.txt	/*curlite-completion*
+curlite-completion-braces	curlite.txt	/*curlite-completion-braces*
 curlite-config-completion	curlite.txt	/*curlite-config-completion*
 curlite-config-curl	curlite.txt	/*curlite-config-curl*
 curlite-config-env	curlite.txt	/*curlite-config-env*

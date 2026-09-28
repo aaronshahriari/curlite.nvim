@@ -1668,6 +1668,26 @@ get the shared variables and nothing else, and an environment you have not
 selected never appears. A name defined in two places is described by the value
 that would win at send time.
 
+                                                        *curlite-completion-braces*
+A variable completes to the whole `{{name}}`. The menu lists bare names, but
+accepting one writes the braces with it, replacing whatever `{{...}}` the
+cursor is in:
+
+    GET {{ho            ->  GET {{host}}
+    GET {{auth.cl       ->  GET {{auth.client_id}}
+    GET {{$uu           ->  GET {{$uuid}}
+    GET {{}}            ->  GET {{host}}        (an autopaired pair is reused)
+    GET {{host}}        ->  GET {{token}}       (re-completing replaces it all)
+
+Each item names the exact range it replaces, rather than leaving the engine to
+work it out from its own keyword pattern -- blink's stops at `$` and `.`, so
+its idea of the word in `{{auth.cl` is `cl`, and accepting would otherwise
+have written `{{auth.auth.client_id`.
+
+A path that is still being written -- `LOGIN.response.body.$.` -- leaves the
+cursor between the braces so you can go on typing it. A finished name leaves
+it after them.
+
 At the start of a line it offers methods and header names; after
 `Content-Type:` and friends it offers plausible values; after `# @` it offers
 the metadata keys with a description of each.

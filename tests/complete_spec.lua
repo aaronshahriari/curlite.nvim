@@ -46,11 +46,84 @@ end
 --- ---------------------------------------------------------------- context
 
 function M.a_double_brace_starts_a_variable(t)
-  t.eq(complete.context("GET {{", 6), { kind = "variable", prefix = "", start = 6 })
-  t.eq(complete.context("GET {{ho", 8), { kind = "variable", prefix = "ho", start = 6 })
+  t.eq(
+    complete.context("GET {{", 6),
+    { kind = "variable", prefix = "", start = 6, replace_start = 4, replace_end = 6 }
+  )
+  t.eq(
+    complete.context("GET {{ho", 8),
+    { kind = "variable", prefix = "ho", start = 6, replace_start = 4, replace_end = 8 }
+  )
   -- Names may hold dots and dollars.
   t.eq(complete.context("GET {{auth.cli", 14).prefix, "auth.cli")
   t.eq(complete.context("GET {{$uui", 10).prefix, "$uui")
+end
+
+function M.the_replaced_range_covers_the_braces(t)
+  -- The range starts at the `{{`, not at the name: an engine that guesses it
+  -- from its own keyword pattern stops at `$` and `.`.
+  local ctx = complete.context("GET {{auth.cli", 14)
+  t.eq(ctx.replace_start, 4)
+  t.eq(ctx.replace_end, 14)
+
+  -- A closing pair after the cursor is absorbed rather than left behind.
+  local paired = complete.context("GET {{}}", 6)
+  t.eq(paired.replace_start, 4)
+  t.eq(paired.replace_end, 8, "the `}}` is part of what gets replaced")
+
+  local reopened = complete.context("GET {{host}}", 10)
+  t.eq(reopened.replace_start, 4)
+  t.eq(reopened.replace_end, 12, "re-completing a finished variable replaces all of it")
+
+  -- A lone brace still counts, for a half-written pair.
+  t.eq(complete.context("GET {{}", 6).replace_end, 7)
+end
+
+function M.variables_complete_with_their_braces(t)
+  local buf = project({
+    ["http-client.env.json"] = [[{ "$curliteshared": { "host": "https://x.dev" } }]],
+    ["api.http"] = "GET {{ho\n",
+  }, "api.http")
+  vim.api.nvim_win_set_buf(0, buf)
+
+  local ctx = complete.context("GET {{ho", 8)
+  local items = complete.items(ctx, buf)
+  local host = find(items, "host")
+  t.truthy(host, "host is offered")
+  t.eq(host.label, "host", "the menu still reads as a plain name")
+  t.eq(host.insertText, "{{host}}", "but it inserts the whole thing")
+  t.eq(host.filterText, "host")
+  t.eq(host.curlite.start, 4)
+  t.eq(host.curlite.stop, 8)
+  t.eq(host.curlite.back, 0, "the cursor lands after the braces")
+end
+
+function M.an_unfinished_path_keeps_the_cursor_inside(t)
+  local buf = project({
+    ["api.http"] = "### LOGIN\nPOST https://x.dev/login\n\nGET {{LOG\n",
+  }, "api.http")
+  vim.api.nvim_win_set_buf(0, buf)
+
+  local items = complete.items(complete.context("GET {{LOG", 9), buf)
+  local chain = find(items, "LOGIN.response.body.$.")
+  t.truthy(chain, "the chain reference is offered")
+  t.eq(chain.insertText, "{{LOGIN.response.body.$.}}")
+  t.eq(chain.curlite.back, 2, "a path still being written stays inside the braces")
+
+  local status = find(items, "LOGIN.response.status")
+  t.eq(status.curlite.back, 0, "a finished one does not")
+end
+
+function M.only_variables_are_wrapped(t)
+  -- A header or a method is not a `{{...}}`, and must not grow braces.
+  local items = complete.items(complete.context("", 0), 0)
+  local get = find(items, "GET")
+  t.eq(get.insertText, "GET ")
+  t.falsy(get.curlite)
+
+  local meta = complete.items(complete.context("# @na", 5), 0)
+  t.truthy(find(meta, "name"))
+  t.falsy(find(meta, "name").curlite)
 end
 
 function M.a_closed_brace_is_not_a_variable(t)
@@ -198,12 +271,20 @@ function M.omnifunc_finds_the_start_and_filters(t)
   vim.api.nvim_win_set_buf(0, buf)
   vim.api.nvim_win_set_cursor(0, { 1, 9 })
 
-  t.eq(complete.omnifunc(1, ""), 6, "completion replaces from just after the braces")
+  t.eq(complete.omnifunc(1, ""), 4, "completion replaces from the braces, which it rewrites")
+  -- Vim hands back everything from `findstart` on, braces included.
   local words = vim.tbl_map(function(entry)
     return entry.word
-  end, complete.omnifunc(0, "api"))
+  end, complete.omnifunc(0, "{{api"))
   table.sort(words)
-  t.eq(words, { "apiKey", "apiVersion" })
+  t.eq(words, { "{{apiKey}}", "{{apiVersion}}" })
+
+  -- A caller that strips the braces itself is matched just the same.
+  local bare = vim.tbl_map(function(entry)
+    return entry.word
+  end, complete.omnifunc(0, "api"))
+  table.sort(bare)
+  t.eq(bare, { "{{apiKey}}", "{{apiVersion}}" })
 
   -- Nothing to complete mid-URL: the menu must not open at all.
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "GET https://example.com/a" })

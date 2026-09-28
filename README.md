@@ -410,6 +410,16 @@ require("cmp").setup.filetype("http", {
 
 Inside `{{` you get the document's `@variables`, the shared block, the selected environment's variables (each with its value and where it came from), nested paths like `auth.clientId`, script globals, prompt answers, the `{{$...}}` functions and the named requests you can chain from. Only what would actually resolve is offered: an environment you have not selected does not appear.
 
+Accepting a variable writes the whole `{{name}}` — the menu lists bare names, but the braces come with it, and whatever `{{...}}` the cursor is in is replaced:
+
+```
+GET {{ho        ->  GET {{host}}
+GET {{auth.cl   ->  GET {{auth.client_id}}
+GET {{$uu       ->  GET {{$uuid}}
+GET {{}}        ->  GET {{host}}     (an autopaired pair is reused, not doubled)
+GET {{host}}    ->  GET {{token}}    (re-completing replaces all of it)
+```
+
 ```lua
 require("lualine").setup({ sections = { lualine_x = { "curlite" } } })
 ```

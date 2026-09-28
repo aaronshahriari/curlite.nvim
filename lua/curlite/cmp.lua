@@ -39,20 +39,47 @@ end
 function source:complete(params, callback)
   local line = params.context.cursor_line
   local col = params.context.cursor.col - 1
+  local row = params.context.cursor.row
   local items = complete.at(line, col, params.context.bufnr or 0)
 
   local out = {}
   for _, entry in ipairs(items) do
-    table.insert(out, {
+    local item = {
       label = entry.label,
       kind = entry.kind,
       detail = entry.detail,
       insertText = entry.insertText,
+      filterText = entry.filterText,
       sortText = entry.sortText,
       documentation = entry.documentation,
-    })
+    }
+    -- A variable replaces its whole `{{...}}`, which is wider than the word
+    -- cmp's keyword pattern would replace on its own.
+    if entry.curlite then
+      item.textEdit = {
+        range = {
+          start = { line = row - 1, character = entry.curlite.start },
+          ["end"] = { line = row - 1, character = entry.curlite.stop },
+        },
+        newText = entry.insertText,
+      }
+      item.data = { curlite = entry.curlite }
+    end
+    table.insert(out, item)
   end
   callback({ items = out, isIncomplete = false })
+end
+
+--- cmp's `execute` hook: step back inside the braces for a path that is still
+--- being written, so `{{LOGIN.response.body.$.}}` leaves you where you can go
+--- on typing it.
+function source:execute(item, callback)
+  local back = item and item.data and item.data.curlite and item.data.curlite.back or 0
+  if back > 0 then
+    local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+    vim.api.nvim_win_set_cursor(0, { row, math.max(col - back, 0) })
+  end
+  callback(item)
 end
 
 local registered = false
