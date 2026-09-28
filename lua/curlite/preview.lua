@@ -1,8 +1,37 @@
 --- Shared rendering for resolved-request previews and confirmations.
 
 local config = require("curlite.config")
+local format = require("curlite.format")
+local util = require("curlite.util")
 
 local M = {}
+
+--- A resolved body as display lines. JSON is re-indented so a preview of a
+--- minified payload is readable, the same way `:Curlite format` treats the
+--- body you typed; everything else is shown byte-for-byte.
+---
+--- The body here is already resolved, so there are no `{{template}}` tokens to
+--- mask -- unlike `curlite.request_format`, which formats the source you keep.
+---@param body string
+---@return string[]
+local function body_lines(body)
+  local cfg = config.get()
+  local first = vim.trim(body):sub(1, 1)
+
+  -- The pure-Lua formatter is linear but not free, and `response.max_format_size` is
+  -- the existing ceiling for "don't re-indent something enormous".
+  local limit = cfg.response.max_format_size
+  if
+    (cfg.format or {}).bodies ~= false
+    and (first == "{" or first == "[")
+    and (limit <= 0 or #body <= limit)
+    and util.json_decode(body)
+  then
+    body = format.json(body, (cfg.format or {}).indent or 2)
+  end
+
+  return vim.split(body, "\n", { plain = true })
+end
 
 ---@param cmd curlite.Command
 ---@param include_curl boolean|nil
@@ -14,9 +43,9 @@ function M.lines(cmd, include_curl)
       table.insert(lines, ("%s: %s"):format(name, cmd.request.headers[name]))
     end
   end
-  if cmd.sent_body then
+  if cmd.sent_body and cmd.sent_body ~= "" then
     table.insert(lines, "")
-    vim.list_extend(lines, vim.split(cmd.sent_body, "\n", { plain = true }))
+    vim.list_extend(lines, body_lines(cmd.sent_body))
   end
   if include_curl then
     table.insert(lines, "")

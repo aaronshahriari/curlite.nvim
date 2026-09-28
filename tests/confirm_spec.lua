@@ -31,7 +31,28 @@ function M.preview_contains_resolved_request(t)
   local lines = require("curlite.preview").lines(cmd)
   t.eq(lines[1], "POST https://api.test/users")
   t.truthy(vim.tbl_contains(lines, "Content-Type: application/json"))
-  t.truthy(vim.tbl_contains(lines, '{"active":false}'))
+  -- A minified JSON body is re-indented for display, the same as `:Curlite format`.
+  t.truthy(vim.tbl_contains(lines, "{"), "the body is spaced out as JSON")
+  t.truthy(vim.tbl_contains(lines, '  "active": false'))
+  t.truthy(vim.tbl_contains(lines, "}"))
+  t.falsy(vim.tbl_contains(lines, '{"active":false}'), "not the minified original")
+end
+
+function M.preview_leaves_a_non_json_body_alone(t)
+  local req = parse("POST https://api.test/form\nContent-Type: text/plain\n\na=1&b=2\n")
+  local cmd = require("curlite.curl").build(req)
+  local lines = require("curlite.preview").lines(cmd)
+  t.truthy(vim.tbl_contains(lines, "a=1&b=2"), "only JSON gets re-indented")
+end
+
+function M.preview_leaves_broken_json_alone(t)
+  local body = '{"active":false,}'
+  local req = parse(
+    "POST https://api.test/users\nContent-Type: application/json\n\n" .. body .. "\n"
+  )
+  local cmd = require("curlite.curl").build(req)
+  local lines = require("curlite.preview").lines(cmd)
+  t.truthy(vim.tbl_contains(lines, body), "a body mid-edit is shown as typed")
 end
 
 function M.preview_caps_width_and_wraps_long_url(t)

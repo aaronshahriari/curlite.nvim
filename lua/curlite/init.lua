@@ -305,14 +305,37 @@ function M.hover()
     syntax = "markdown"
   end
 
-  return vim.lsp.util.open_floating_preview(contents, syntax, {
+  -- `BufLeave` must stay out of `close_events`: pressing `K` again focuses the
+  -- float, which leaves the request buffer, and that close autocmd is
+  -- unconditional -- it would shut the window the second before you land in
+  -- it. `open_floating_preview` registers its own `BufLeave` handler that
+  -- ignores the float's own buffer, so leaving for anywhere else still closes.
+  local float_buf, float_win = vim.lsp.util.open_floating_preview(contents, syntax, {
     border = config.get().ui.float.border,
     focus_id = "curlite_hover",
     wrap = true,
     max_width = math.max(40, math.min(100, vim.o.columns - 10)),
     max_height = math.max(5, math.floor(vim.o.lines * 0.5)),
-    close_events = { "CursorMoved", "CursorMovedI", "InsertCharPre", "BufLeave", "WinScrolled" },
+    close_events = { "CursorMoved", "CursorMovedI", "InsertCharPre", "WinScrolled" },
   })
+
+  -- `q` comes from `open_floating_preview`; `<Esc>` matches curlite's other
+  -- floats. Setting it on every call is harmless -- the second `K` hands back
+  -- the same window. The buffer check skips the third path through
+  -- `open_floating_preview`, which returns the *source* buffer when it steps
+  -- back out of an already-focused float; mapping `<Esc>` there would shadow it
+  -- in the request buffer.
+  if
+    float_win
+    and vim.api.nvim_win_is_valid(float_win)
+    and vim.api.nvim_win_get_buf(float_win) == float_buf
+  then
+    vim.keymap.set("n", "<Esc>", function()
+      pcall(vim.api.nvim_win_close, float_win, true)
+    end, { buffer = float_buf, nowait = true, silent = true })
+  end
+
+  return float_buf, float_win
 end
 
 --- Pick the active environment.

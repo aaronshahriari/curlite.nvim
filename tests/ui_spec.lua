@@ -617,6 +617,72 @@ function M.hover_opens_an_unfocused_cursor_anchored_float(t)
   vim.api.nvim_buf_delete(buf, { force = true })
 end
 
+-- A second `K` steps into the float and leaves it open, exactly like
+-- `vim.lsp.buf.hover()`. This regressed once because `BufLeave` was in
+-- `close_events`: focusing the float leaves the request buffer, so the close
+-- autocmd fired. It only shows up after the scheduled close runs, hence the
+-- `vim.wait` -- without it the window is still standing either way.
+function M.hover_twice_focuses_the_float(t)
+  local curlite = require("curlite")
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_set_current_buf(buf)
+  vim.bo[buf].filetype = "http"
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+    "POST https://api.example.com/things",
+    "Content-Type: application/json",
+    "",
+    '{"active":false}',
+  })
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+  curlite.hover()
+  t.truthy(hover_float(), "the first K opens the float")
+
+  curlite.hover()
+  vim.wait(200)
+  local win = hover_float()
+  t.truthy(win, "the second K does not close it")
+  t.eq(vim.api.nvim_get_current_win(), win, "the second K puts the cursor inside it")
+
+  -- `<Esc>` hands the cursor back, the same as curlite's other floats.
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
+  vim.wait(200)
+  t.falsy(hover_float(), "<Esc> closes the float")
+  t.eq(vim.api.nvim_get_current_buf(), buf, "and leaves you back in the request")
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
+-- The body in a hover is the resolved one, spaced out as JSON.
+function M.hover_pretty_prints_a_json_body(t)
+  local curlite = require("curlite")
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_set_current_buf(buf)
+  vim.bo[buf].filetype = "http"
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+    "@flag = false",
+    "",
+    "POST https://api.example.com/things",
+    "Content-Type: application/json",
+    "",
+    '{"active":{{flag}},"tags":["a"]}',
+  })
+  vim.api.nvim_win_set_cursor(0, { 3, 0 })
+
+  curlite.hover()
+  local win = hover_float()
+  t.truthy(win, "K opens a float")
+  local text = table.concat(
+    vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false),
+    "\n"
+  )
+  t.match(text, '\n  "active": false', "the resolved body is indented as JSON")
+  t.match(text, '\n    "a"', "and nested arrays are spaced too")
+
+  pcall(vim.api.nvim_win_close, win, true)
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
 --- The inline text for `fake()`, with `ui.inline` overridden for one call.
 ---@param overrides table
 local function inline_text(overrides)

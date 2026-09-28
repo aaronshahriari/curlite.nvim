@@ -182,6 +182,11 @@ Before sending, curlite shows the fully resolved request in a centered popup.
 Choose `y` or `n`, then press Enter. Declining skips the request without
 stopping a "send all" run. `# @confirm` provides the same behavior.
 
+Every resolved-request preview -- this popup, |curlite-inspect| and
+|curlite-hover| -- indents a JSON body for display, so a payload written on one
+line is still readable. `format.bodies = false` turns that off along with the
+buffer formatter.
+
 The method is optional — a bare URL is a GET. A trailing `HTTP/1.1` is
 recognised and forces that protocol version.
 
@@ -841,7 +846,8 @@ to look at.
     replay      re-send whatever ran last
     inspect     show the resolved request and its curl equivalent
                                                              *curlite-inspect*
-    hover       an LSP-style popup with just the resolved request
+    hover       an LSP-style popup with just the resolved request; press the
+                mapping again to step into the popup
                                                                *curlite-hover*
     env         pick the environment
     pick        jump to a request in this file
@@ -879,7 +885,9 @@ Set buffer-locally in every `http` buffer:
                     `### NAME` as a shell comment above the command
     <leader>RC      convert a curl command in the clipboard
     <leader>Ri      inspect the resolved request
-    K               hover: the resolved request in an LSP-style popup
+    K               hover: the resolved request in an LSP-style popup. Press
+                    `K` again to move the cursor inside it, then `q` or `<Esc>`
+                    to close. Moving the cursor dismisses it.
     <leader>Rx      clear
     <leader>Rn/Rp   next / previous request
     <leader>f       format the request file
@@ -1189,8 +1197,13 @@ no-op, so it is safe on `BufWritePre`.
     therefore not valid JSON on its own. A body that does not parse is left
     alone, so a half-typed payload is never mangled.
 
+    This also governs the resolved-request previews -- |curlite-hover|,
+    |curlite-inspect| and the `[confirm]` popup -- which indent a JSON body for
+    display without touching the buffer.
+
 `format.indent` ~
-    Spaces per indent level for a JSON body. Default `2`.
+    Spaces per indent level for a JSON body, both in the buffer and in a
+    preview. Default `2`.
 
 `format.on_save` ~
     Format automatically just before the buffer is written. Default `false`. >lua

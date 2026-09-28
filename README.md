@@ -88,7 +88,7 @@ There's a full tour in [`demo/api.http`](demo/api.http) — every request in it 
 
 | Key | Action | Key | Action |
 |---|---|---|---|
-| `<leader>Rs` / `<CR>` | Send the request under the cursor | `K` | Hover: the resolved request, LSP-style |
+| `<leader>Rs` / `<CR>` | Send the request under the cursor | `K` | Hover: the resolved request, LSP-style — `K` again steps inside |
 | `<leader>Ra` | Send every request in the file | `<leader>Ri` | The same, plus the curl equivalent, in a window you can read |
 | `<leader>Rr` | Replay the last one | `<leader>Rc` | Yank a shareable cURL command |
 | `<leader>Re` | Pick the environment | `<leader>RC` | Turn a curl command in the clipboard into a request |
