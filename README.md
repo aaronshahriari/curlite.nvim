@@ -8,13 +8,9 @@ Write HTTP requests in a `.http` file, send them from the buffer, read the respo
 ![curl](https://img.shields.io/badge/powered%20by-curl-4c566a?style=flat-square&logo=curl&logoColor=white)
 ![Lua](https://img.shields.io/badge/pure-Lua-4c566a?style=flat-square&logo=lua&logoColor=white)
 
-[Features](#features) · [Install](#install) · [Quick start](#quick-start) · [The format](#the-http-format) · [Configuration](#configuration) · [Coming from kulala](#coming-from-kulala)
+[Features](#features) · [Install](#install) · [Quick start](#quick-start) · [Format](#the-http-format) · [Configuration](#configuration)
 
 </div>
-
-curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS Code's REST Client and kulala.nvim use — and runs it through `curl`.
-
-There is no companion binary, no language server and no Node. `curl` is the only requirement, and responses come back **out of band** (headers to one file, body to another, timings as JSON on stdout), so a body containing header-looking lines can't confuse the parser and a 40MB download never passes through a Lua string twice.
 
 <!-- DEMO SCREENSHOT: save the screenshot to the repo root as `curlite_demo.png`,
      then delete this comment wrapper (the two lines marked <<< / >>>) to show it.
@@ -29,39 +25,39 @@ There is no companion binary, no language server and no Node. `curl` is the only
 >>>
 -->
 
+curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS Code's REST Client and kulala.nvim use — and runs it through `curl`. **No companion binary, no language server, no Node.** Responses come back out of band (headers, body and timings in separate streams), so a body full of header-looking lines can't confuse the parser and a 40MB download never passes through a Lua string twice.
+
 ## Features
 
-- **Send from the buffer** — the request under the cursor, all of them, or everything from the cursor down. Inline `  200 OK · 143ms` appears at the end of the request line.
-- **Six response panes** — body, headers, both, a timing and size breakdown, curl's verbose trace, and your scripts' output. Cycle with `H`/`L`, jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `jq` can filter it live with `/`.
-- **Environments** from `http-client.env.json` with a `$shared` block, a gitignored `.private.` overlay, and per-project memory of which one you picked.
-- **Variables everywhere** — document (`@token = ...`), environment, process env, `.env`, prompts, dynamic (`{{$uuid}}`, `{{$timestamp -1 d}}`, `{{$randomInt 1 100}}`, IntelliJ's `{{$random.integer(1,100)}}`), and shell (`{{$exec pass show api/token}}`). Resolution is recursive, so `@base = {{host}}/v1` works.
-- **Request chaining** — `{{LOGIN.response.body.$.data.token}}` reads an earlier response, and `# @run LOGIN` makes curlite send it for you first. Cycles terminate; a failed dependency blocks the request that needed it.
+- **Send from the buffer** — the request under the cursor, all of them, or everything from the cursor down. ` 200 OK · 143ms` appears inline at the end of the request line.
+- **Six response panes** — body, headers, both, timing and size, curl's verbose trace, script output. Cycle with `H`/`L`, jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `jq` filters it live with `/`.
+- **Environments** from `http-client.env.json` — a `$shared` block, a gitignored `.private.` overlay, and per-project memory of which one you picked.
+- **Variables everywhere** — document, environment, process env, `.env`, prompts, dynamic (`{{$uuid}}`, `{{$timestamp -1 d}}`, `{{$randomInt 1 100}}`) and shell (`{{$exec pass show api/token}}`). Resolution is recursive, so `@base = {{host}}/v1` works.
+- **Request chaining** — `{{LOGIN.response.body.$.data.token}}` reads an earlier response, and `# @run LOGIN` makes curlite send it for you first.
 - **Lua scripts**, not JavaScript — `< {% ... %}` before, `> {% ... %}` after, with `request`, `response` and `client` in scope. You're already in a Lua editor.
-- **Assertions** — `# @assert status == 200`, `client.test("name", fn)`. Results show as a `3/4` tally in the winbar and on the request line. `:CurliteRun file.http` runs a whole file and reports the totals.
-- **Auth** — Bearer, Basic (base64-encoded for you), Digest, NTLM, Negotiate, AWS SigV4 and client certificates, each mapped onto the curl flag that implements it. A shared cookie jar carries a login's session into the next request.
-- **GraphQL** and **multipart** bodies, `< ./payload.json` inputs, `>>! ./out.json` outputs.
-- **Paste a curl command**, get a request back — including the shape Chrome's "Copy as cURL" produces. And the reverse: yank any request as a pasteable curl line.
-- **Completion** for blink.cmp: variables with their values, chain references for every named request, methods, header names, header values and `# @` metadata with descriptions.
-- **Form bodies written the way people write them** — one parameter per line, `&`-prefixed. The newlines are formatting, and curlite strips them before sending, the way every other client does.
+- **Assertions** — `# @assert status == 200` and `client.test(...)`, tallied in the winbar. `:CurliteRun file.http` runs a whole file and reports the totals.
+- **Auth** — Bearer, Basic, Digest, NTLM, Negotiate, AWS SigV4 and client certificates, each mapped onto the curl flag that implements it. A shared cookie jar carries a login's session into the next request.
+- **Paste a curl command**, get a request back — including what Chrome's "Copy as cURL" produces. And the reverse: yank any request as a pasteable curl line.
+- **Completion** for blink.cmp — variables with their values, chain references, methods, header names and values, `# @` metadata.
 
 ## Requirements
 
 - Neovim 0.10+
 - `curl` (7.75+ for the Stats pane; older still works)
-- Optional: [`jq`](https://jqlang.github.io/jq/) (the `/` filter; formatting doesn't need it), [blink.cmp](https://github.com/Saghen/blink.cmp) (completion), a treesitter `http` parser (curlite ships a syntax file and uses it when there isn't one), [lualine.nvim](https://github.com/nvim-lualine/lualine.nvim)
+- Optional: [`jq`](https://jqlang.github.io/jq/) (the `/` filter), [blink.cmp](https://github.com/Saghen/blink.cmp) (completion), a treesitter `http` parser (curlite ships a syntax file for when there isn't one), [lualine.nvim](https://github.com/nvim-lualine/lualine.nvim)
 
 `:checkhealth curlite` reports what's available.
 
 ## Install
 
-With [`vim.pack`](https://neovim.io/doc/user/pack.html) (Neovim 0.12+):
+**vim.pack (Neovim 0.12+)**
 
 ```lua
 vim.pack.add({ { src = "https://github.com/aaronshahriari/curlite.nvim" } })
 require("curlite").setup({})
 ```
 
-With [lazy.nvim](https://github.com/folke/lazy.nvim):
+**lazy.nvim**
 
 ```lua
 {
@@ -86,29 +82,26 @@ Accept: application/json
 
 Cursor anywhere in it, `<leader>Rs`. That's it.
 
-| key | |
-| --- | --- |
-| `<leader>Rs` | send the request under the cursor |
-| `<leader>Ra` | send every request in the file |
-| `<leader>Rr` | replay the last one |
-| `<leader>Re` | pick the environment |
-| `<leader>Rf` | jump to a request by name |
-| `<leader>Ri` | show the resolved request + its curl equivalent |
-| `K` | show the same resolved-request preview |
-| `<leader>Ry` | yank the request as a curl command |
-| `<leader>Rp` | turn a curl command in the clipboard into a request |
-| `<leader>h` | hide/show the response at its last split position |
-| `]r` `[r` | next / previous request |
-
-In the response window: `H`/`L` cycle panes, `1`–`6` jump, `[`/`]` walk the history, `/` filters JSON with jq, `gd` jumps back to the request, `Y` yanks the body, `gs` saves it, `R` re-sends, `q` closes.
-
 There's a full tour in [`demo/api.http`](demo/api.http) — every request in it runs against httpbin.org, so you can open it and start pressing keys.
+
+## Sending requests
+
+| Key | Action | Key | Action |
+|---|---|---|---|
+| `<leader>Rs` | Send the request under the cursor | `<leader>Ri` / `K` | Show the resolved request + its curl equivalent |
+| `<leader>Ra` | Send every request in the file | `<leader>Ry` | Yank the request as a curl command |
+| `<leader>Rr` | Replay the last one | `<leader>Rp` | Turn a curl command in the clipboard into a request |
+| `<leader>Re` | Pick the environment | `<leader>h` | Hide/show the response |
+| `<leader>Rf` | Jump to a request by name | `]r` / `[r` | Next / previous request |
+
+**In the response window:** `H`/`L` cycle panes, `1`–`6` jump to one, `[`/`]` walk the history, `/` filters JSON with jq, `gd` jumps back to the request, `Y` yanks the body, `gs` saves it, `R` re-sends, `q` closes.
+
+`:Curlite [send|all|rest|replay|inspect|env|pick|toggle|open|close|clear|cancel|curl|paste|scratch|log|health]` covers the same ground, and `:CurliteRun [file]` runs every request in a file and reports the assertion totals.
 
 ## The `.http` format
 
 ````http
 @host = https://api.example.com
-@traceId = {{$uuid}}
 
 ### LOGIN
 POST {{host}}/auth/login
@@ -116,9 +109,7 @@ Content-Type: application/json
 
 { "user": "aaron", "password": "{{$env.PASSWORD}}" }
 
-> {%
-  client.global.set("token", response.json.data.token)
-%}
+> {% client.global.set("token", response.json.data.token) %}
 
 # @assert status == 200
 
@@ -129,23 +120,18 @@ GET {{host}}/orders
   ?status=open
   &limit=50
 Authorization: Bearer {{token}}
-X-Trace-Id: {{traceId}}
-
-# @assert #json.items <= 50
 ````
 
-A run of three or more `#` separates requests, and whatever follows names one. The method is optional. Indented lines starting with `?` or `&` extend the URL. Headers run until the first blank line; everything after it is the body.
+A run of three or more `#` separates requests, and whatever follows names one. The method is optional. Indented lines starting with `?` or `&` extend the URL. Headers run until the first blank line; everything after it is the body. A file with no `###` at all still works — a method at column 0 after a blank line begins a new request.
 
-A file with no `###` at all still works — a method at column 0 after a blank line begins a new request.
-
-Guard a request that should never run accidentally by adding `[confirm]` to its title. Curlite shows the fully resolved request in a centered popup and requires `y` or `n`, followed by Enter, before continuing:
+Guard a dangerous request with `[confirm]` in its title (or `# @confirm` on an untitled one) and curlite shows the fully resolved request in a popup, requiring `y` or `n` before it sends:
 
 ```http
 ### [confirm] Delete production user
 DELETE {{prod}}/users/42
 ```
 
-`# @confirm` provides the same protection for an untitled request. Declining skips it without stopping a "send all" run.
+## More
 
 <details>
 <summary><b>Metadata</b> — <code># @key value</code> above a request</summary>
@@ -168,7 +154,7 @@ DELETE {{prod}}/users/42
 | `@resolve H:P:ADDR` / `@interface NAME` | pin a host / bind an interface |
 | `@retry N` / `@user USER:PASS` | |
 | `@graphql` | treat the body as a GraphQL query |
-| `@confirm` | show the resolved request and require confirmation before sending |
+| `@confirm` | show the resolved request and require confirmation |
 | `@skip` | never send this one; a "send all" steps over it |
 | `@no-cookie-jar` | don't touch the shared jar |
 | `@curl ARGS` | raw curl flags, the escape hatch |
@@ -176,7 +162,7 @@ DELETE {{prod}}/users/42
 </details>
 
 <details>
-<summary><b>Variables</b> — lookup order and the dynamic ones</summary>
+<summary><b>Variables</b> — lookup order, dynamic values, chaining</summary>
 
 First hit wins: dynamic functions → request variables → script globals → prompt answers → document variables → environment.
 
@@ -207,6 +193,8 @@ Reading an earlier response:
 {{LOGIN.request.body.$.user}}
 {{$last.response.status}}
 ```
+
+Cycles terminate, and a failed dependency blocks the request that needed it.
 
 </details>
 
@@ -297,14 +285,146 @@ For a browser-redirect flow, get the token however you normally do and reach it 
 
 </details>
 
+<details>
+<summary><b>Bodies</b> — forms, files, GraphQL, multipart</summary>
+
+Form bodies are written the way people write them — one parameter per line, `&`-prefixed. The newlines are formatting, and curlite strips them before sending, the way every other client does.
+
+`< ./payload.json` reads a body from disk, `>>! ./out.json` writes the response to one, `# @graphql` treats the body as a GraphQL query, and multipart bodies work as they do in every other `.http` client.
+
+</details>
+
+<details>
+<summary><b>Where the response opens</b></summary>
+
+`ui.display` takes `right` (default), `left`, `below`, `above`, `float` or `tab`. `vertical` and `horizontal` are aliases for `right` and `below`.
+
+`ui.width` sizes a vertical split, `ui.height` a horizontal one; `0` leaves it to Neovim, and a size you set by hand sticks while the window is open. For `float`, `ui.float.width`/`height` are fractions of the editor and `ui.float.border` is anything `nvim_open_win` accepts.
+
+`ui.focus = false` keeps the cursor in the request buffer so you can fire the next request straight away. The window carries `winfixbuf`, so a stray `:bnext` or a plugin can't replace your response with something else.
+
+Drop any pane you never open from `ui.panes` — it leaves the winbar and the `H`/`L` cycle with it.
+
+</details>
+
+<details>
+<summary><b>Highlights</b></summary>
+
+Every group is a link with `default = true`, so it follows your colorscheme, anything you set wins, and a `:colorscheme` change is picked up automatically.
+
+Six carry meaning and are configurable through `ui.highlights`:
+
+| group | when | default |
+| --- | --- | --- |
+| `CurliteSuccess` | 2xx | `DiagnosticOk` |
+| `CurliteRedirect` | 3xx | `DiagnosticInfo` |
+| `CurliteClientError` | 4xx | `DiagnosticWarn` |
+| `CurliteServerError` | 5xx, and a failed request | `DiagnosticError` |
+| `CurliteRunning` | in flight | `Comment` |
+| `CurliteInline` | the inline virtual text | `Comment` |
+
+The rest describe curlite's own furniture and are fixed links — override them with `:highlight` if you want:
+
+| group | | group | |
+| --- | --- | --- | --- |
+| `CurlitePaneActive` | the pane you're on | `CurliteSection` | a Stats/Script heading |
+| `CurlitePaneInactive` | the other tabs | `CurliteLabel` | a Stats label |
+| `CurliteStatusLine` | the `HTTP/2` prefix | `CurliteValue` | a Stats value |
+| `CurliteHeaderName` | a header's name | `CurliteTotal` | the Total timing row |
+| `CurliteHeaderValue` | a header's value | `CurliteLogLine` | a `client.log` line |
+| `CurliteMethod` | the request's method | `CurliteTestPass` | a passing assertion |
+| `CurliteUrl` | the request's URL | `CurliteTestFail` | a failing one |
+| `CurliteRule` | the request/response divider | `CurliteTestDetail` | a failure's detail |
+| | | `CurliteTestName` | a passing test's name |
+
+`.http` buffers use a treesitter `http` parser when one is installed; otherwise curlite's own `syntax/http.vim` runs — `:h curlite-highlights-http` lists every group it defines.
+
+</details>
+
+<details>
+<summary><b>blink.cmp & lualine</b></summary>
+
+```lua
+require("blink.cmp").setup({
+  sources = {
+    providers = { curlite = { module = "curlite.blink", name = "curlite" } },
+    per_filetype = { http = { "curlite", "path", "buffer" } },
+  },
+})
+```
+
+```lua
+require("lualine").setup({ sections = { lualine_x = { "curlite" } } })
+```
+
+The lualine component shows the active environment and the last response. `require("curlite").current_env()` is the building block for any other statusline.
+
+</details>
+
+<details>
+<summary><b>Coming from kulala</b></summary>
+
+The file format is identical, so your `.http` files and `http-client.env.json` work unchanged. What's different:
+
+| | |
+| --- | --- |
+| **scripts** | Lua, not JavaScript. `client.global.set`, `client.test`, `request.skip` and `request.abort` keep their names; the bodies are Lua. |
+| **no backend** | no companion binary, no tree-sitter CLI, no download on install. `curl` is the only requirement. |
+| **protocols** | HTTP and GraphQL. No gRPC, WebSocket or streaming. |
+| **OAuth2** | no built-in flow — chain a token request instead. |
+| **OpenAPI explorer** | not included. |
+| **filtering** | a jq expression over the body (`/` in the response window). |
+
+Environments, `$shared`, dynamic variables, request chaining, prompts, assertions, `>>` redirects, `< file` bodies, multipart and the scratchpad all behave the same way.
+
+</details>
+
+## API
+
+Run requests from Lua with no UI at all — handy in a keymap, timer or autocommand:
+
+```lua
+-- Async: your callback runs on the main loop.
+require("curlite").inline([[
+GET https://api.example.com/health
+Accept: application/json
+]], function(result)
+  if result.response.status ~= 200 then
+    vim.notify("service is down", vim.log.levels.ERROR)
+  end
+end)
+
+-- Or block on it.
+local result = require("curlite").inline_sync("GET https://api.example.com/ip")
+
+-- Run a whole file's assertions.
+require("curlite").run_file("tests/api.http", function(s)
+  print(s.total, s.passed, s.failed)
+end)
+```
+
 ## Configuration
 
-`setup()` deep-merges over the defaults, so pass only what you want changed.
-Every field is documented inline in [`lua/curlite/config.lua`](lua/curlite/config.lua),
-and in full in `:h curlite-configuration`.
+`setup()` deep-merges over the defaults, so pass only what you want changed. Common ones:
 
-<details open>
-<summary><b>The complete default table</b></summary>
+```lua
+require("curlite").setup({
+  ui = {
+    display = "right",      -- right | left | below | above | float | tab
+    width   = 88,           -- columns, for a left/right split
+    focus   = false,        -- keep the cursor in the request buffer
+  },
+  curl = {
+    timeout    = 30000,     -- ms; `# @timeout` wins
+    verify_ssl = true,
+  },
+  response = { format = true },
+  notify   = "errors",      -- all | errors | none
+})
+```
+
+<details>
+<summary>All options &amp; defaults</summary>
 
 ```lua
 require("curlite").setup({
@@ -350,7 +470,7 @@ require("curlite").setup({
       running  = "",
       redirect = "",
     },
-    highlights = {                         -- see "Highlights" below
+    highlights = {                         -- see "Highlights" above
       success      = "DiagnosticOk",
       redirect     = "DiagnosticInfo",
       client_error = "DiagnosticWarn",
@@ -427,126 +547,7 @@ require("curlite").setup({
 
 </details>
 
-### Where the response opens
-
-`ui.display` takes `right` (default), `left`, `below`, `above`, `float` or `tab`.
-`vertical` and `horizontal` are aliases for `right` and `below`.
-
-`ui.width` sizes a vertical split, `ui.height` a horizontal one; `0` leaves it
-to Neovim, and a size you set by hand sticks while the window is open. For
-`float`, `ui.float.width`/`height` are fractions of the editor and
-`ui.float.border` is anything `nvim_open_win` accepts.
-
-`ui.focus = false` keeps the cursor in the request buffer so you can fire the
-next request straight away. The window carries `winfixbuf`, so a stray
-`:bnext` or a plugin can't replace your response with something else.
-
-Drop any pane you never open from `ui.panes` — it leaves the winbar and the
-`H`/`L` cycle with it.
-
-### Highlights
-
-Every group is a link with `default = true`, so it follows your colorscheme,
-anything you set wins, and a `:colorscheme` change is picked up automatically.
-
-Six carry meaning and are configurable through `ui.highlights`:
-
-| group | when | default |
-| --- | --- | --- |
-| `CurliteSuccess` | 2xx | `DiagnosticOk` |
-| `CurliteRedirect` | 3xx | `DiagnosticInfo` |
-| `CurliteClientError` | 4xx | `DiagnosticWarn` |
-| `CurliteServerError` | 5xx, and a failed request | `DiagnosticError` |
-| `CurliteRunning` | in flight | `Comment` |
-| `CurliteInline` | the inline virtual text | `Comment` |
-
-The rest describe curlite's own furniture and are fixed links — override them
-with `:highlight` if you want:
-
-| group | | group | |
-| --- | --- | --- | --- |
-| `CurlitePaneActive` | the pane you're on | `CurliteSection` | a Stats/Script heading |
-| `CurlitePaneInactive` | the other tabs | `CurliteLabel` | a Stats label |
-| `CurliteStatusLine` | the `HTTP/2` prefix | `CurliteValue` | a Stats value |
-| `CurliteHeaderName` | a header's name | `CurliteTotal` | the Total timing row |
-| `CurliteHeaderValue` | a header's value | `CurliteLogLine` | a `client.log` line |
-| `CurliteMethod` | the request's method | `CurliteTestPass` | a passing assertion |
-| `CurliteUrl` | the request's URL | `CurliteTestFail` | a failing one |
-| `CurliteRule` | the request/response divider | `CurliteTestDetail` | a failure's detail |
-| | | `CurliteTestName` | a passing test's name |
-
-`.http` buffers use a treesitter `http` parser when one is installed; otherwise
-curlite's own `syntax/http.vim` runs — `:h curlite-highlights-http` lists every
-group it defines.
-
-<details>
-<summary><b>blink.cmp</b></summary>
-
-```lua
-require("blink.cmp").setup({
-  sources = {
-    providers = { curlite = { module = "curlite.blink", name = "curlite" } },
-    per_filetype = { http = { "curlite", "path", "buffer" } },
-  },
-})
-```
-
-</details>
-
-<details>
-<summary><b>lualine</b></summary>
-
-```lua
-require("lualine").setup({ sections = { lualine_x = { "curlite" } } })
-```
-
-Shows the active environment and the last response. `require("curlite").current_env()`
-is the building block for any other statusline.
-
-</details>
-
-## From Lua
-
-```lua
--- Run a request without touching the UI: a keymap, a timer, an autocommand.
-require("curlite").inline([[
-GET https://api.example.com/health
-Accept: application/json
-]], function(result)
-  if result.response.status ~= 200 then
-    vim.notify("service is down", vim.log.levels.ERROR)
-  end
-end)
-
--- Or block on it.
-local result = require("curlite").inline_sync("GET https://api.example.com/ip")
-
--- Run a whole file's assertions.
-require("curlite").run_file("tests/api.http", function(s)
-  print(s.total, s.passed, s.failed)
-end)
-```
-
-## Coming from kulala
-
-The file format is identical, so your `.http` files and `http-client.env.json` work unchanged. What's different:
-
-| | |
-| --- | --- |
-| **scripts** | Lua, not JavaScript. `client.global.set`, `client.test`, `request.skip` and `request.abort` keep their names; the bodies are Lua. |
-| **no backend** | no companion binary, no tree-sitter CLI, no download on install. `curl` is the only requirement. |
-| **protocols** | HTTP and GraphQL. No gRPC, WebSocket or streaming. |
-| **OAuth2** | no built-in flow — chain a token request instead. |
-| **OpenAPI explorer** | not included. |
-| **filtering** | a jq expression over the body (`/` in the response window). |
-
-Environments, `$shared`, dynamic variables, request chaining, prompts, assertions, `>>` redirects, `< file` bodies, multipart and the scratchpad all behave the same way.
-
-## Commands
-
-`:Curlite [send|all|rest|replay|inspect|env|pick|toggle|open|close|clear|cancel|curl|paste|scratch|log|health]`
-
-`:CurliteRun [file]` — with a file, run every request in it and report the assertion totals.
+Every field is documented inline in [`lua/curlite/config.lua`](lua/curlite/config.lua), and in full at `:help curlite-configuration`.
 
 ## Development
 
@@ -559,4 +560,4 @@ tests/run.sh parser       # just the ones matching "parser"
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Aaron Shahriari
