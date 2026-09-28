@@ -161,6 +161,11 @@ function M.setup_highlights()
     CurliteTestName = "Normal",
     CurliteTestDetail = "Comment",
     CurliteLogLine = "Normal",
+    -- environment picker
+    CurliteEnvActive = "DiagnosticOk",
+    CurliteEnvName = "Normal",
+    CurliteEnvCount = "Comment",
+    CurliteEnvOrigin = "Comment",
   }
   for name, target in pairs(fixed) do
     vim.api.nvim_set_hl(0, name, { link = target, default = true })
@@ -1050,7 +1055,7 @@ function M.toggle()
   if result then
     M.show(result, { push = false })
   else
-    util.notify("curlite: no response yet", vim.log.levels.INFO)
+    util.emit("no_response", "curlite: no response yet")
   end
 end
 
@@ -1265,7 +1270,9 @@ function M.yank_body()
     return
   end
   vim.fn.setreg(vim.v.register or '"', result.response.body)
-  util.alert(("curlite: yanked %s"):format(util.human_size(#result.response.body)), vim.log.levels.INFO)
+  util.emit("yank", ("curlite: yanked %s"):format(util.human_size(#result.response.body)), {
+    data = { bytes = #result.response.body },
+  })
 end
 
 --- Save the current body to a file.
@@ -1289,9 +1296,9 @@ function M.save_body()
     end
     local ok, err = util.write_file(vim.fn.expand(path), result.response.body)
     if ok then
-      util.alert(("curlite: wrote %s"):format(path), vim.log.levels.INFO)
+      util.emit("save", ("curlite: wrote %s"):format(path), { data = { path = path } })
     else
-      util.err(("curlite: %s"):format(err))
+      util.emit("write_error", ("curlite: %s"):format(err), { level = vim.log.levels.ERROR })
     end
   end)
 end

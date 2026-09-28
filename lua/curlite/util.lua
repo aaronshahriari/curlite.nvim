@@ -1,42 +1,41 @@
 --- Small shared helpers: notifications, logging, paths, JSONPath.
 
-local config = require("curlite.config")
-
 local M = {}
 
-local TITLE = "curlite"
+--- Emit a message tagged with an event name from `curlite.notify`. Whether it
+--- is shown is up to `config.notify`; see `:h curlite-notifications`.
+---@param event string
+---@param msg string
+---@param opts { level: integer|string|nil, data: table|nil }|nil
+function M.emit(event, msg, opts)
+  return require("curlite.notify").emit(event, msg, opts)
+end
 
+--- Back-compat shims. They map onto the generic events, so `notify.events`
+--- can still reach anything that has not been given a name of its own.
 ---@param msg string
 ---@param level integer|nil  vim.log.levels.*
 function M.notify(msg, level)
   level = level or vim.log.levels.INFO
-  local mode = config.get().notify
-  if mode == "none" then
-    return
-  end
-  if mode == "errors" and level < vim.log.levels.WARN then
-    return
-  end
-  vim.schedule(function()
-    vim.notify(msg, level, { title = TITLE })
-  end)
+  local event = level >= vim.log.levels.ERROR and "error"
+    or level >= vim.log.levels.WARN and "warn"
+    or "info"
+  return M.emit(event, msg, { level = level })
 end
 
---- Always shown, regardless of `notify`. For things the user must see.
 ---@param msg string
 ---@param level integer|nil
 function M.alert(msg, level)
-  vim.schedule(function()
-    vim.notify(msg, level or vim.log.levels.ERROR, { title = TITLE })
-  end)
+  level = level or vim.log.levels.ERROR
+  return M.emit(level >= vim.log.levels.ERROR and "error" or "warn", msg, { level = level })
 end
 
 function M.warn(msg)
-  M.alert(msg, vim.log.levels.WARN)
+  return M.emit("warn", msg)
 end
 
 function M.err(msg)
-  M.alert(msg, vim.log.levels.ERROR)
+  return M.emit("error", msg)
 end
 
 local log_path = vim.fn.stdpath("log") .. "/curlite.log"
@@ -44,7 +43,7 @@ local log_path = vim.fn.stdpath("log") .. "/curlite.log"
 --- Append to the debug log when `debug = true`.
 ---@param ... any
 function M.log(...)
-  if not config.get().debug then
+  if not require("curlite.config").get().debug then
     return
   end
   local parts = {}

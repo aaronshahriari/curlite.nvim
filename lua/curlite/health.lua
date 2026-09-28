@@ -94,15 +94,105 @@ local function check_environments()
 
   vim.health.ok(("%d environment%s: %s"):format(#names, #names == 1 and "" or "s", table.concat(names, ", ")))
   local current = env.current(source)
-  if current then
-    if vim.tbl_contains(names, current) then
-      vim.health.ok(("active environment: %s"):format(current))
-    else
-      vim.health.warn(
-        ("active environment `%s` is not defined"):format(current),
-        { "pick another with `:Curlite env`" }
-      )
+  if not current then
+    vim.health.info(
+      "no environment selected — only the shared variables resolve until you pick one"
+    )
+    vim.health.info("pick one with `:Curlite env`")
+  elseif vim.tbl_contains(names, current) then
+    vim.health.ok(("active environment: %s"):format(current))
+  else
+    vim.health.warn(
+      ("active environment `%s` is not defined"):format(current),
+      { "pick another with `:Curlite env`" }
+    )
+  end
+
+  -- `$default_headers` goes out with every request, including the ones you
+  -- are not looking at, so it is worth stating outright rather than leaving
+  -- to be discovered in a verbose trace.
+  local headers = env.headers(source, current)
+  local listed, dropped = {}, {}
+  for name, value in pairs(headers) do
+    table.insert(value == false and dropped or listed, name)
+  end
+  table.sort(listed)
+  table.sort(dropped)
+  if #listed > 0 then
+    vim.health.ok(("default headers from the environment file: %s"):format(table.concat(listed, ", ")))
+  end
+  if #dropped > 0 then
+    vim.health.info(("dropped by this environment: %s"):format(table.concat(dropped, ", ")))
+  end
+end
+
+--- `notify.events` is keyed by name, and a typo there fails silently: the
+--- event you meant keeps notifying and the key you wrote does nothing. Name
+--- the unknown keys here rather than let them look like they took effect.
+---@param cfg table
+local function check_notify(cfg)
+  local notify = require("curlite.notify")
+  local raw = cfg.notify
+
+  if type(raw) == "string" then
+    vim.health.info(
+      ("notify = %q — the string form still works; `:h curlite-notifications` has the table"):format(raw)
+    )
+    return
+  end
+  if type(raw) ~= "table" then
+    vim.health.warn(("notify should be a table or a string, got %s"):format(type(raw)))
+    return
+  end
+
+  if raw.enabled == false then
+    vim.health.warn("notifications disabled — errors are silent too", {
+      "prefer `notify.events = { <name> = false }` to silence one message",
+    })
+  end
+
+  if raw.level ~= nil and notify.level(raw.level) == nil then
+    vim.health.error(("notify.level = %s is not a level"):format(vim.inspect(raw.level)), {
+      '"error" | "warn" | "info" | "debug" | "trace" | "off", or a vim.log.levels.* number',
+    })
+  end
+
+  local unknown = {}
+  for name, rule in pairs(raw.events or {}) do
+    if notify.events[name] == nil then
+      table.insert(unknown, name)
+    elseif type(rule) ~= "boolean" and notify.level(rule) == nil then
+      vim.health.error(("notify.events.%s = %s is neither a boolean nor a level"):format(name, vim.inspect(rule)))
     end
+  end
+  if #unknown > 0 then
+    table.sort(unknown)
+    vim.health.error(("unknown notify.events: %s"):format(table.concat(unknown, ", ")), {
+      "`:Curlite events` lists every event name",
+    })
+  end
+
+  for _, key in ipairs({ "filter", "backend" }) do
+    if raw[key] ~= nil and type(raw[key]) ~= "function" then
+      vim.health.error(("notify.%s must be a function, got %s"):format(key, type(raw[key])))
+    end
+  end
+
+  local hidden = {}
+  for name, spec in pairs(notify.events) do
+    if not notify.enabled(name, spec.level, { msg = "" }) then
+      table.insert(hidden, name)
+    end
+  end
+  table.sort(hidden)
+  if #hidden == 0 then
+    vim.health.ok("notifications: every event is getting through")
+  else
+    vim.health.ok(("notifications: %d of %d events silenced (%s)"):format(
+      #hidden,
+      vim.tbl_count(notify.events),
+      table.concat(hidden, ", ")
+    ))
   end
 end
 
@@ -151,6 +241,8 @@ local function check_config()
   if cfg.debug then
     vim.health.info(("debug log: %s"):format(require("curlite.util").log_path()))
   end
+
+  check_notify(cfg)
 end
 
 function M.check()

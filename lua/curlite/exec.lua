@@ -74,7 +74,7 @@ function M.resolve_imports(doc, seen, depth)
       seen[path] = true
       local imported, ierr = require("curlite.parser").parse_file(path)
       if not imported then
-        util.warn(("curlite: @import %s: %s"):format(rel, ierr))
+        util.emit("import_error", ("curlite: @import %s: %s"):format(rel, ierr))
       else
         -- The importing file wins on a name clash, so a local override of an
         -- imported request behaves the way you would expect.
@@ -227,7 +227,7 @@ function M.send(raw, opts)
           next_chain[name] = true
           table.insert(pending, dep)
         else
-          util.warn(("curlite: @run %s -- no request by that name"):format(name))
+          util.emit("chain_error", ("curlite: @run %s -- no request by that name"):format(name))
         end
       end
     end
@@ -279,7 +279,7 @@ function M.send(raw, opts)
       duration_ms = 0,
     }
     if err then
-      util.err(("curlite: %s"):format(err))
+      util.emit("request_error", ("curlite: %s"):format(err))
     end
     finish(result)
     return nil
@@ -344,7 +344,7 @@ function M.send(raw, opts)
           if not resp.error then
             post = scripts.run_post(resolved, resp)
             if post.error then
-              util.warn(("curlite: post-request script: %s"):format(post.error))
+              util.emit("script_error", ("curlite: post-request script: %s"):format(post.error))
             end
           end
 
@@ -361,11 +361,11 @@ function M.send(raw, opts)
           if resolved.redirect and resp.body ~= "" then
             local path = util.resolve_path(resolved.redirect.path, raw.source)
             if vim.fn.filereadable(path) == 1 and not resolved.redirect.overwrite then
-              util.warn(("curlite: %s exists; use `>>!` to overwrite"):format(path))
+              util.emit("write_error", ("curlite: %s exists; use `>>!` to overwrite"):format(path))
             else
               local ok, werr = util.write_file(path, resp.body)
               if not ok then
-                util.warn(("curlite: %s"):format(werr))
+                util.emit("write_error", ("curlite: %s"):format(werr))
               end
             end
           end
@@ -457,7 +457,8 @@ function M.send_sequence(requests, opts)
           opts.on_each(result, index)
         end
         if result.aborted then
-          util.warn(
+          util.emit(
+            "request_aborted",
             ("curlite: aborted at request %d/%d%s"):format(
               index,
               #requests,

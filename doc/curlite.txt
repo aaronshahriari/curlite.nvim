@@ -27,6 +27,8 @@ CONTENTS                                                    *curlite-contents*
   6. Variables ................................... |curlite-variables|
        Document variables ....................... |curlite-variables-document|
        Environments .............................. |curlite-environments|
+       Default headers ........................... |curlite-env-headers|
+       Selecting one ............................. |curlite-env-selecting|
        Dynamic variables ......................... |curlite-dynamic|
        Request variables ......................... |curlite-request-variables|
        Prompts ................................... |curlite-prompts|
@@ -50,6 +52,7 @@ CONTENTS                                                    *curlite-contents*
        Highlighting .............................. |curlite-config-highlight|
        Environments .............................. |curlite-config-env|
        Scripts ................................... |curlite-config-scripts|
+       Notifications ............................. |curlite-notifications|
        Everything else ........................... |curlite-config-misc|
  15. Lua API ..................................... |curlite-api|
  16. Completion .................................. |curlite-completion|
@@ -146,13 +149,17 @@ logged.
 Then add an environment file next to it, `http-client.env.json`: >
 
     {
-      "$shared": { "apiVersion": "v1" },
+      "$curliteshared": { "apiVersion": "v1" },
       "dev":  { "host": "http://localhost:3000" },
       "prod": { "host": "https://api.example.com" }
     }
 <
 Drop the `@host` line, press `<leader>Re` to pick an environment, and the same
-request now runs against either one. The choice is remembered per project.
+request now runs against either one.
+
+Nothing is selected until you pick: opening a `.http` file always starts with
+no environment, and the first send opens the picker instead of going out
+against whichever one you used last. See |curlite-environments|.
 
 ==============================================================================
 5. THE .HTTP FORMAT                                           *curlite-format*
@@ -369,14 +376,18 @@ ENVIRONMENTS                                            *curlite-environments*
 it — defines one object per environment: >
 
     {
-      "$shared": { "apiVersion": "v1" },
+      "$curliteshared": { "apiVersion": "v1" },
       "dev":  { "host": "http://localhost:3000" },
       "prod": { "host": "https://api.example.com", "auth": {
                   "clientId": "abc" } }
     }
 <
-`$shared` is merged under every environment. Nested objects are reachable with
-a dotted name: `{{auth.clientId}}`.
+`$curliteshared` is merged under every environment. JetBrains' `$shared` is
+read as well, so a file written for another client works here unchanged; when
+a file carries both, `$curliteshared` wins where they define the same key.
+`env.shared_key` sets which names are looked for.
+
+Nested objects are reachable with a dotted name: `{{auth.clientId}}`.
 
 `http-client.private.env.json` is merged over the public file and is the one
 to gitignore. Files nearer the `.http` file win over ones further up, so a
@@ -385,9 +396,100 @@ sub-directory can override a project-wide default.
 `//` and `/* */` comments in these files are tolerated (a `//` inside a
 string, as in `https://`, is left alone).
 
-Pick an environment with `<leader>Re` or `:Curlite env`. The choice is
-remembered per project, keyed on the nearest directory holding an env file or
-a `.git`.
+DEFAULT HEADERS                                         *curlite-env-headers*
+
+A `$default_headers` object holds headers sent with every request in the
+project. It sits beside the variables, in a shared key or in an environment
+or both: >json
+
+    {
+      "$shared": {
+        "$default_headers": {
+          "Accept": "application/json",
+          "X-Client": "curlite"
+        }
+      },
+      "dev": {
+        "host": "http://localhost:3000",
+        "token": "dev-token"
+      },
+      "prod": {
+        "host": "https://api.example.com",
+        "token": "{{$dotenv PROD_TOKEN}}",
+        "$default_headers": {
+          "Authorization": "Bearer {{token}}",
+          "X-Client": false
+        }
+      }
+    }
+<
+This is where a header that belongs to a *project* goes, as opposed to one
+that belongs to your editor (`request.default_headers`, in your Lua config) or
+to a single request (the header line itself). Three things follow from that:
+
+    - `{{...}}` in a value is substituted against the request that is going
+      out, so `"Bearer {{token}}"` picks up whichever token the selected
+      environment defines. `$dotenv`, `$uuid`, globals set by a script and
+      the rest of |curlite-variables| all work.
+
+    - An environment's headers are merged over the shared ones, so `prod`
+      above sends `Accept` from `$shared` and `Authorization` of its own. A
+      value of `false` drops an inherited header instead of sending it —
+      `prod` sends no `X-Client` at all.
+
+    - A request that sets the header itself always wins, whatever the case
+      it writes it in. Nothing is sent twice.
+
+In full, later wins: >
+
+    request.default_headers  (your Lua config)
+        <  $default_headers in a shared key
+        <  $default_headers in the selected environment
+        <  the header on the request itself
+<
+The resolved headers are what `:Curlite inspect`, `hover` and `curl` show, so
+a request's real shape is always one keystroke away. The picker lists them
+under the variables, and `:checkhealth curlite` names the ones currently in
+force.
+
+These keys are not variables: `{{$default_headers}}` resolves to nothing and
+they never appear in completion or the picker's variable block.
+`env.headers_key` sets which names are looked for.
+
+SELECTING ONE                                         *curlite-env-selecting*
+
+An environment is active because you chose it, and for no other reason.
+curlite never selects the first one it finds, and never carries a choice over
+from another file or another day: opening a `.http` file starts with none.
+
+With none selected and environments defined, sending stops and opens the
+picker; the request goes out once you have chosen. Set
+`env.require_selection = false` to let requests run against the shared
+variables alone instead, or `env.default = "dev"` to have one active from the
+start without being asked.
+
+Pick with `<leader>Re` or `:Curlite env`. The picker shows the environments on
+the left and, on the right, the variables the highlighted one resolves to —
+the shared block merged with its own values, pretty-printed, each top-level
+key marked with where it came from, and under them the headers it adds to
+every request (|curlite-env-headers|). That is the point of it: you choose by
+reading the host you are about to send to rather than by remembering which
+name meant which stack.
+
+    <CR>          take the highlighted environment
+    j k           move, previewing as you go
+    q  <Esc>      leave the selection as it was
+
+The first entry, `(no environment)`, previews the shared block alone and
+selects nothing. Choosing it counts as having chosen, so sends stop asking.
+
+The choice lives for this Neovim session, keyed on the nearest directory
+holding an env file or a `.git`, and is dropped when a `.http` file in that
+project is opened again.
+
+The scripted entry points — |curlite.inline()|, |curlite.inline_sync()| and
+|curlite.run_file()| — are never gated this way: they run what you handed
+them, against whatever is selected.
 
 A `.env` file in the same directories is read too, and is reachable as
 `{{$dotenv NAME}}`.
@@ -862,6 +964,8 @@ to look at.
     format      format request lines, headers and JSON bodies
     scratch     open a throwaway `.http` buffer
     log         open the debug log
+    events      list the notification events and which are getting through
+                                                       |curlite-notifications|
     health      `:checkhealth curlite`
 
                                                                  *:CurliteRun*
@@ -933,6 +1037,13 @@ The complete default table: >lua
         width = 0.5,
         height = 0.5,
         float = { width = 0.8, height = 0.8, border = "rounded" },
+        picker = {
+          width = 0.8,
+          height = 0.7,
+          list_width = 0.3,
+          border = "rounded",
+          preview = true,
+        },
         default_pane = "body",
         panes = { "body", "headers", "all", "stats", "verbose", "script" },
         winbar = true,
@@ -987,7 +1098,14 @@ The complete default table: >lua
         files = { "http-client.env.json", "http-client.private.env.json" },
         dotenv = ".env",
         default = nil,
-        shared_key = "$shared",
+        require_selection = true,
+        shared_key = { "$curliteshared", "$shared" },
+      },
+
+      completion = {
+        enable = true,
+        auto_trigger = true,
+        cmp = true,
       },
 
       scripts = {
@@ -1127,6 +1245,14 @@ UI                                                         *curlite-config-ui*
 `ui.flash_timeout`, `ui.flash_scope`, `ui.panes`, `ui.default_pane`
 are all covered in |curlite-response-window| and |curlite-display|.
 
+`ui.picker` ~
+    Geometry of the environment picker: `width` and `height` as fractions of
+    the editor (or absolute counts above 1), `list_width` as the fraction of
+    that width the list of names takes, `border`, and `preview` -- `false`
+    drops the variable pane and leaves a plain list of names. Defaults `0.8`,
+    `0.7`, `0.3`, `"rounded"`, `true`. It is large on purpose; see
+    |curlite-env-selecting|.
+
 `ui.icons` ~
     Single characters shown beside a status, in the winbar and in the inline
     virtual text. Set any to `""` to drop it. Keys: `success`, `error`,
@@ -1259,11 +1385,25 @@ ENVIRONMENTS                                              *curlite-config-env*
     Filename read for `{{$dotenv NAME}}`, or `false` to disable.
 
 `env.default` ~
-    Environment to start with. `nil` means "remember the last one picked in
-    this project", falling back to the first defined.
+    Environment to start with. `nil` -- the default -- means *none*: curlite
+    never guesses one and never carries the last choice into a new buffer.
+    Name one here only if you want it active without being asked.
+
+`env.require_selection` ~
+    With environments defined and none selected, a send opens the picker
+    instead of going out; the request follows once you have chosen. `false`
+    lets requests run against the shared variables alone. See
+    |curlite-env-selecting|.
 
 `env.shared_key` ~
-    The key whose contents are merged under every environment. `"$shared"`.
+    The key whose contents are merged under every environment, or a list of
+    them with earlier names winning. `{ "$curliteshared", "$shared" }`.
+    JetBrains' `$shared` is always read, whatever you set here.
+
+`env.headers_key` ~
+    The key inside an environment object that holds default headers rather
+    than variables, or a list of them with earlier names winning.
+    `{ "$default_headers", "$defaultHeaders" }`. See |curlite-env-headers|.
 
 ------------------------------------------------------------------------------
 SCRIPTS                                               *curlite-config-scripts*
@@ -1285,6 +1425,127 @@ SCRIPTS                                               *curlite-config-scripts*
     it is off the JIT for those few milliseconds.
 
 ------------------------------------------------------------------------------
+NOTIFICATIONS                                        *curlite-notifications*
+
+Every message curlite shows is tagged with an event name, so a message you
+find noisy is turned off by name rather than by turning the plugin quiet: >lua
+
+    notify = {
+      events = {
+        env_selected = false,        -- stop announcing the environment
+        request_done = "warn",       -- 4xx/5xx only; 200s are silent
+      },
+    }
+<
+`:Curlite events` prints the full list with each event's default level and
+whether your current configuration lets it through.
+
+                                                          *curlite-notify-events*
+THE EVENTS ~
+
+Request lifecycle:
+    `request_sent`      a request is going out                 (off by default)
+    `request_done`      a response landed; WARN for 4xx/5xx
+    `request_skipped`   a pre-request script skipped it        (off by default)
+    `request_aborted`   a script aborted a `send_all` run
+    `request_error`     the request could not be built or sent
+    `run_summary`       the tally after `send_all` / `:CurliteRun`
+    `cancelled`         in-flight requests were cancelled
+
+Environments:
+    `env_selected`      "environment → staging"
+    `env_required`      a send was held back until you pick one
+    `env_missing`       no environment file was found
+
+The document:
+    `no_request`        no request under the cursor, or in the file
+    `duplicate_names`   two requests in a file share a name
+    `parse_error`       a file or a curl command would not parse
+
+Resolving a request:
+    `import_error`      `# @import` could not read a file
+    `chain_error`       `# @run` names a request that does not exist
+    `variable_error`    `{{$exec ...}}` and friends failed
+    `script_error`      a pre/post-request script raised
+
+Clipboard and files:
+    `yank`              something was copied to a register
+    `save`              a response body was written to disk
+    `write_error`       a `>>` redirect could not be written
+
+The response window:
+    `no_response`       `toggle` with nothing to show           (off by default)
+    `cleared`           session state was cleared               (off by default)
+
+Anything curlite has not given a name of its own is `info`, `warn` or `error`.
+
+                                                        *curlite-notify-options*
+THE OPTIONS ~
+
+`notify.enabled` ~
+    The master switch. `false` and nothing is ever notified — errors included,
+    which is usually not what you want. Silence events by name instead.
+
+`notify.level` ~
+    The severity floor for ordinary events: `"error"`, `"warn"` (default),
+    `"info"`, `"debug"`, `"trace"` or `"off"`, or a |vim.log.levels| number.
+
+    Some events ignore it. Those are the ones that answer a question you just
+    asked ("did the yank land?") or report that something you asked for did
+    not happen; hiding those behind a severity threshold makes the plugin look
+    broken rather than quiet, so they are only turned off by naming them in
+    `events`. `:Curlite events` marks them.
+
+`notify.events` ~
+    Per-event overrides, keyed by the names above. Each value may be:
+
+        `false`             never notify for this event
+        `true`              always notify, ignoring `level`
+        `"warn"`, `3`, ...    a threshold just for this event
+
+    A name that is not an event does nothing, silently — `:checkhealth
+    curlite` reports the typo.
+
+`notify.filter` ~
+    `function(ev) -> boolean|nil`, run after everything above and given the
+    last word. `ev` is `{ event, level, shown, msg, data }`, where `data`
+    carries whatever the call site knew — the result, the status, the
+    environment name. Return a boolean to override the decision, `nil` to keep
+    it: >lua
+
+    notify = {
+      filter = function(ev)
+        -- announce slow requests, however they ended
+        if ev.event == "request_done" and ev.data.result then
+          return ev.data.result.response.duration_ms > 1000
+        end
+      end,
+    }
+<
+`notify.backend` ~
+    Route messages somewhere other than |vim.notify|: a notifier plugin, a
+    statusline, a log file. `function(msg, level, opts)`, where `opts` is
+    `{ title, event, data }`. `nil` uses `vim.notify`. >lua
+
+    notify = {
+      backend = function(msg, level, opts)
+        require("fidget").notify(msg, level, { annote = opts.event })
+      end,
+    }
+<
+`notify.title` ~
+    The `title` passed to `vim.notify`, which most notifier plugins show.
+    Default `"curlite"`.
+
+                                                        *curlite-notify-legacy*
+The older spelling still works and means what it always did: >lua
+
+    notify = "errors"   -- the default: failures only
+    notify = "all"      -- also a line as each request starts and lands
+    notify = "none"     -- silent
+<
+
+------------------------------------------------------------------------------
 EVERYTHING ELSE                                          *curlite-config-misc*
 
 `history.size` ~
@@ -1302,9 +1563,8 @@ EVERYTHING ELSE                                          *curlite-config-misc*
     back to decoding the text it still has.
 
 `notify` ~
-    `"errors"` (default) — only failures.
-    `"all"` — also a message when a request starts and when it lands.
-    `"none"` — nothing. Errors that need your attention still show.
+    Which `vim.notify` messages get through, and where they go. See
+    |curlite-notifications|.
 
 `debug` ~
     Write every command line to `stdpath("log")/curlite.log`. `:Curlite log`
@@ -1326,8 +1586,12 @@ EVERYTHING ELSE                                          *curlite-config-misc*
     curlite.run_from_cursor()
     curlite.replay()
     curlite.inspect()
-    curlite.select_env()
-    curlite.current_env()          --> "prod" | nil
+    curlite.select_env()           -- opens the picker
+    curlite.select_env({ on_choice = function(name) ... end })
+    curlite.current_env()          --> "prod" | nil (nil = none selected)
+    curlite.env.select("dev", source)   -- choose without the picker
+    curlite.env.names(source)      --> every environment defined
+    curlite.env.vars(source, "dev")     -- what "dev" would resolve to
     curlite.hover()
     curlite.pick_request()
     curlite.goto_request(1)        -- or -1
@@ -1383,7 +1647,32 @@ The modules are reachable as `curlite.parser`, `curlite.exec`, `curlite.env`,
 ==============================================================================
 16. COMPLETION                                            *curlite-completion*
 
-For blink.cmp: >lua
+Completion needs no plugin. Every `.http` buffer gets an 'omnifunc', so
+|i_CTRL-X_CTRL-O| completes, and after `{{` the menu opens by itself as you
+type. Sources for blink.cmp and nvim-cmp are included and offer exactly the
+same items.
+
+Inside `{{ }}` you are offered:
+
+    - the document's `@variables`, with their values
+    - the shared block's variables, marked `$curliteshared`
+    - the selected environment's variables, marked with its name
+    - nested paths, so `{{auth.clientId}}` completes as `auth.clientId`
+    - script globals and prompt answers
+    - the dynamic `{{$...}}` functions, with what each returns
+    - `NAME.response.body.$.`, `NAME.response.status` and
+      `NAME.response.headers.` for every named request in the file
+
+Only what would actually resolve is offered: with no environment selected you
+get the shared variables and nothing else, and an environment you have not
+selected never appears. A name defined in two places is described by the value
+that would win at send time.
+
+At the start of a line it offers methods and header names; after
+`Content-Type:` and friends it offers plausible values; after `# @` it offers
+the metadata keys with a description of each.
+
+blink.cmp: >lua
 
     require("blink.cmp").setup({
       sources = {
@@ -1394,12 +1683,27 @@ For blink.cmp: >lua
       },
     })
 <
-It completes document variables, environment variables (showing each value),
-script globals, prompt names, the dynamic functions, and — for every named
-request in the file — the `NAME.response.body.$.` chain reference. At the
-start of a line it offers methods and header names; after `Content-Type:` and
-friends it offers plausible values; after `# @` it offers the metadata keys
-with a description of each.
+nvim-cmp — the source registers itself when cmp is loaded, so it only needs
+naming: >lua
+
+    require("cmp").setup.filetype("http", {
+      sources = { { name = "curlite" }, { name = "buffer" } },
+    })
+<
+                                                       *curlite-config-completion*
+Options: >lua
+
+    completion = {
+      enable = true,        -- set `omnifunc` on http buffers
+      auto_trigger = true,  -- open the menu after `{{`, with no engine loaded
+      cmp = true,           -- register the nvim-cmp source when cmp is there
+    }
+<
+`auto_trigger` stays out of the way when blink.cmp or nvim-cmp is loaded —
+they do their own triggering. To pop the menu open it needs 'completeopt' to
+carry `noselect` or `noinsert`; where Neovim allows a buffer-local
+'completeopt' curlite sets one for `.http` buffers only, and where it does not
+(Neovim 0.10) it leaves yours alone and does nothing unless it already says so.
 
 ==============================================================================
 17. STATUSLINE                                            *curlite-statusline*
@@ -1409,8 +1713,10 @@ with a description of each.
       sections = { lualine_x = { "curlite" } },
     })
 <
-Shows the active environment and the last response's status and time. Options:
-`show_env`, `show_status`, `only_http`, `icon`.
+Shows the active environment and the last response's status and time. While
+nothing is selected it shows `no env`, which is the state worth seeing: it
+says the next send will stop and ask. Options: `show_env`, `no_env_text`,
+`show_status`, `only_http`, `icon`.
 
 `require("curlite").current_env()` is the building block for any other
 statusline.
@@ -1467,6 +1773,12 @@ Winbar ~
 The request flash ~
     CurliteFlash         the request being sent  -> Visual
                          (see |curlite-flash|)
+
+The environment picker ~
+    CurliteEnvActive     the selected environment   -> DiagnosticOk
+    CurliteEnvName       the other names            -> Normal
+    CurliteEnvCount      the variable count         -> Comment
+    CurliteEnvOrigin     which block a value is from -> Comment
 
 The confirm dialog ~
     CurliteConfirmYes    the Yes button, selected   -> DiagnosticOk, inverted
@@ -1633,8 +1945,12 @@ The file format is the same, so your existing `.http` files and
     OpenAPI explorer    not included
     filtering           a jq expression over the body (`/` in the response
                         window), rather than kulala's filter syntax
+    environments        nothing is selected until you pick one. Opening a file
+                        starts with none, and the first send opens the picker
+                        rather than reusing an earlier choice
+                        (|curlite-env-selecting|)
 
-Everything else — environments, `$shared`, dynamic variables, request
+Everything else — environments, the shared block, dynamic variables, request
 chaining, prompts, assertions, the `>>` redirect, `< file` bodies, multipart,
 the scratchpad — behaves the same way.
 

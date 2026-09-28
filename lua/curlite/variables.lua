@@ -226,7 +226,8 @@ M.dynamic = {
     if vim.v.shell_error ~= 0 then
       -- A failed command would otherwise substitute its stderr, or nothing,
       -- and the request would go out with a broken credential in it.
-      util.warn(
+      util.emit(
+        "variable_error",
         ("curlite: $exec `%s` exited with %d: %s"):format(
           args,
           vim.v.shell_error,
@@ -400,13 +401,34 @@ function M.render_request(req, ctx)
 
   out.url = M.render(out.url, ctx, missing)
   out.headers = {}
+  local have = {}
   for _, name in ipairs(req.header_order) do
     local rendered_name = M.render(name, ctx, missing)
     out.headers[rendered_name] = M.render(req.headers[name], ctx, missing)
+    have[rendered_name:lower()] = true
   end
   out.header_order = vim.tbl_map(function(n)
     return M.render(n, ctx, missing)
   end, req.header_order)
+
+  -- `$default_headers` from the environment file fills what the request left
+  -- alone. They are rendered here, with the request's own context, so a
+  -- `{{token}}` in one resolves the same way it would on the request line --
+  -- and so `:Curlite inspect` and `copy_curl` show what actually goes out.
+  local defaults = env.active_headers(ctx.source)
+  local names = vim.tbl_keys(defaults)
+  -- Sorted: the order headers are added in is otherwise `pairs` order, which
+  -- would reshuffle the curl line between runs.
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local value = defaults[name]
+    local rendered_name = M.render(name, ctx, missing)
+    if not have[rendered_name:lower()] and value ~= false then
+      have[rendered_name:lower()] = true
+      out.headers[rendered_name] = M.render(tostring(value), ctx, missing)
+      table.insert(out.header_order, rendered_name)
+    end
+  end
   out.body = M.render(out.body, ctx, missing)
   out.body_file = M.render(out.body_file, ctx, missing)
   if out.redirect then

@@ -60,6 +60,14 @@ M.defaults = {
     variables_scope = "request",
     -- Default headers merged into every request unless the request sets its
     -- own. Keys are matched case-insensitively.
+    --
+    -- This is the bottom of the stack. A header may also come from the
+    -- environment file, which is where a per-project or per-environment one
+    -- belongs; see `env.headers_key`. In full, later wins:
+    --
+    --   request.default_headers  <  $shared's $default_headers
+    --                            <  the environment's $default_headers
+    --                            <  the header on the request itself
     default_headers = {
       ["User-Agent"] = "curlite.nvim",
     },
@@ -82,6 +90,21 @@ M.defaults = {
       width = 0.8,
       height = 0.8,
       border = "rounded",
+    },
+    -- The environment picker (`keymaps.select_env`). It is deliberately large:
+    -- it shows every environment beside the variables that environment
+    -- resolves to, so you pick by looking at the values rather than by
+    -- remembering which name means which host.
+    picker = {
+      -- Fractions of the editor, or absolute cell counts above 1.
+      width = 0.8,
+      height = 0.7,
+      -- How much of that width the list of names takes; the rest previews the
+      -- variables.
+      list_width = 0.3,
+      border = "rounded",
+      -- Show the variable preview at all. False leaves a plain, narrow list.
+      preview = true,
     },
     -- Which pane the response opens on. Select with `B`/`H`/`A`/`S`/`V`/`O`.
     --   "body" | "headers" | "all" | "stats" | "verbose" | "script"
@@ -259,12 +282,54 @@ M.defaults = {
     -- Also read a `.env` file from the same directories, exposed as
     -- `{{$dotenv NAME}}`.
     dotenv = ".env",
-    -- Environment selected at startup. nil means "remember the last one you
-    -- picked" (persisted per project), falling back to the first defined.
+    -- Environment selected when a file is opened. nil -- the default -- means
+    -- *none*: curlite never guesses an environment and never carries the last
+    -- one over into a new buffer, so a request cannot go out against the wrong
+    -- host because of what you were doing an hour ago. Name one here only if
+    -- you genuinely want it active without being asked.
     default = nil,
-    -- The `$shared` key in http-client.env.json is merged under every
-    -- environment. This is the name curlite looks for.
-    shared_key = "$shared",
+    -- Refuse to send while no environment is selected (and the project defines
+    -- some): the picker opens instead, and the request goes out once you have
+    -- chosen. Set false to let requests run with only the shared variables.
+    require_selection = true,
+    -- The key in http-client.env.json whose variables every environment
+    -- inherits. A list is allowed, earlier names winning; JetBrains' `$shared`
+    -- is always read as well, so files written for other clients still work.
+    shared_key = { "$curliteshared", "$shared" },
+    -- The key inside an environment object (or inside a shared one) that holds
+    -- headers sent with every request, rather than variables:
+    --
+    --   {
+    --     "$shared": { "$default_headers": { "Accept": "application/json" } },
+    --     "prod":    { "$default_headers": { "Authorization": "Bearer {{tok}}" } }
+    --   }
+    --
+    -- The environment's headers are merged over the shared ones, and a header
+    -- the request sets itself always wins. `false` as a value drops an
+    -- inherited header instead of sending it. A list is allowed, earlier names
+    -- winning. These keys are not exposed as variables.
+    headers_key = { "$default_headers", "$defaultHeaders" },
+  },
+
+  -- Completion inside `.http` buffers: `{{` offers the variables that would
+  -- actually resolve there (document, shared, the selected environment,
+  -- script globals, prompts, chainable requests and the `$` functions), and
+  -- the start of a line offers methods, headers and `# @` metadata.
+  --
+  -- curlite provides this three ways so it works whatever you use:
+  -- blink.cmp and nvim-cmp sources, and -- with neither -- Neovim's own
+  -- `omnifunc`, popped open for you as you type.
+  completion = {
+    -- Set the buffer's `omnifunc`, so `<C-x><C-o>` completes.
+    enable = true,
+    -- Open the completion menu by itself after `{{`, and keep it filtering as
+    -- you type. Only ever used when no completion engine is loaded -- blink
+    -- and cmp do their own triggering.
+    auto_trigger = true,
+    -- Register the nvim-cmp source automatically when nvim-cmp is loaded.
+    -- blink.cmp is configured declaratively, so it is registered in your own
+    -- blink config; see `:h curlite-completion`.
+    cmp = true,
   },
 
   scripts = {
@@ -336,10 +401,69 @@ M.defaults = {
     refresh = "R",           -- re-send the request that produced this
   },
 
-  -- Notification level: "all" | "errors" | "none".
-  --   all    -- a message when a request starts and when it lands
-  --   errors -- only failures
-  notify = "errors",
+  -- Which `vim.notify` messages get through, and where they go.
+  --
+  -- Every message curlite shows is tagged with an *event* name, so you can
+  -- silence one by name instead of turning the whole plugin quiet. See
+  -- `:h curlite-notifications` for the list, or `:Curlite events` to print it
+  -- with each event's default.
+  --
+  -- The older `notify = "all" | "errors" | "none"` is still accepted and means
+  -- what it always did.
+  notify = {
+    -- The master switch. False and nothing is ever notified -- errors
+    -- included, so prefer silencing events by name.
+    enabled = true,
+
+    -- The severity floor for ordinary events: "error" | "warn" | "info" |
+    -- "debug" | "trace" | "off", or a `vim.log.levels.*` number.
+    --
+    -- Events marked *important* in the registry ignore this. Those are the
+    -- ones that answer a question you just asked ("did the yank land?") or
+    -- report that something you asked for did not happen; hiding those behind
+    -- a severity threshold makes the plugin look broken rather than quiet, so
+    -- they are only turned off by naming them in `events` below.
+    level = "warn",
+
+    -- Per-event overrides, keyed by event name. Each value may be:
+    --   false           -- never notify for this event
+    --   true            -- always notify, ignoring `level`
+    --   "warn" | 3 | .. -- a threshold just for this event
+    --
+    -- The common ones:
+    --   request_sent    -- "GET https://..." as it goes out       (off by default)
+    --   request_done    -- "200 OK in 143ms" when it lands        (4xx/5xx only)
+    --   request_skipped -- a pre-request script skipped it        (off by default)
+    --   run_summary     -- the tally after `send_all`
+    --   env_selected    -- "environment -> staging"
+    --   yank / save     -- a body or curl line left the editor
+    events = {
+      -- request_done = "warn",
+      -- env_selected = false,
+    },
+
+    -- The last word, after `enabled`, `events` and `level` have decided.
+    -- `function(ev) -> boolean|nil`, where `ev` is
+    -- `{ event, level, shown, msg, data }` and `data` carries whatever the
+    -- call site knew (the result, the status, the env name...). Return a
+    -- boolean to override the decision, or nil to keep it.
+    --
+    --   filter = function(ev)
+    --     -- every 2xx is silent, everything else behaves normally
+    --     if ev.event == "request_done" and ev.data.status < 300 then
+    --       return false
+    --     end
+    --   end,
+    filter = nil,
+
+    -- Route messages somewhere other than `vim.notify` -- fidget, snacks,
+    -- a statusline, a log file. `function(msg, level, opts)`, where `opts` is
+    -- `{ title, event, data }`. nil uses `vim.notify`.
+    backend = nil,
+
+    -- The `title` passed to `vim.notify`, which most notifier plugins show.
+    title = "curlite",
+  },
 
   -- Write a debug log to stdpath("log")/curlite.log. Useful when a request
   -- behaves differently than the same curl line in a shell.

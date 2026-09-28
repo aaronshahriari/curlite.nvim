@@ -34,7 +34,8 @@ local function document(bufnr)
     local key = ("%s:%s"):format(doc.source or tostring(bufnr), table.concat(dupes, ","))
     if not warned_duplicates[key] then
       warned_duplicates[key] = true
-      util.warn(
+      util.emit(
+        "duplicate_names",
         ("curlite: duplicate request name%s in this file: %s — `# @run` and `{{name.response...}}` can't tell them apart"):format(
           #dupes == 1 and "" or "s",
           table.concat(dupes, ", ")
@@ -69,9 +70,9 @@ local function ui_handlers(bufnr, opts)
     force_prompts = opts.force_prompts,
     dry_run = opts.dry_run,
     on_start = function(req)
-      if config.get().notify == "all" then
-        util.notify(("curlite: %s %s"):format(req.method, req.url), vim.log.levels.INFO)
-      end
+      util.emit("request_sent", ("curlite: %s %s"):format(req.method, req.url), {
+        data = { method = req.method, url = req.url, name = req.name },
+      })
       ui.flash(req, bufnr)
       if not opts.quiet then
         ui.show_pending(req)
@@ -87,7 +88,12 @@ local function ui_handlers(bufnr, opts)
       ui.set_inline(result, bufnr)
 
       if result.skipped then
-        util.notify("curlite: request skipped" .. (result.script and result.script.reason and (": " .. result.script.reason) or ""), vim.log.levels.INFO)
+        util.emit(
+          "request_skipped",
+          "curlite: request skipped"
+            .. (result.script and result.script.reason and (": " .. result.script.reason) or ""),
+          { data = { result = result } }
+        )
         return
       end
 
@@ -97,13 +103,14 @@ local function ui_handlers(bufnr, opts)
 
       if result.response then
         local level = result.response.status >= 400 and vim.log.levels.WARN or vim.log.levels.INFO
-        util.notify(
+        util.emit(
+          "request_done",
           ("curlite: %d %s in %s"):format(
             result.response.status,
             result.response.status_text,
             util.human_time(result.response.duration_ms)
           ),
-          level
+          { level = level, data = { result = result, status = result.response.status } }
         )
       end
 
@@ -114,6 +121,27 @@ local function ui_handlers(bufnr, opts)
   }
 end
 
+--- Run `fn` once this project's environment has been chosen.
+---
+--- With `env.require_selection` on (the default) and environments defined,
+--- the first send in a buffer opens the picker instead of going out against
+--- whichever environment happened to be selected somewhere else. Picking one
+--- -- or picking "no environment" deliberately -- then runs `fn`.
+---@param source string|nil
+---@param fn fun()
+local function with_env(source, fn)
+  local cfg = config.get().env
+  if not cfg.require_selection or env.chosen(source) or #env.names(source) == 0 then
+    return fn()
+  end
+  util.emit("env_required", "curlite: select an environment first")
+  M.select_env({
+    on_choice = function()
+      fn()
+    end,
+  })
+end
+
 --- -------------------------------------------------------------------- API
 
 --- Send a specific request.
@@ -122,7 +150,9 @@ end
 function M.run(req, opts)
   opts = opts or {}
   local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
-  exec.send(req, ui_handlers(bufnr, opts))
+  with_env(req.source or vim.api.nvim_buf_get_name(bufnr), function()
+    exec.send(req, ui_handlers(bufnr, opts))
+  end)
 end
 
 --- Send the request under the cursor.
@@ -130,7 +160,7 @@ end
 function M.run_at_cursor(opts)
   local req = request_at_cursor()
   if not req then
-    util.err("curlite: no request found in this buffer")
+    util.emit("no_request", "curlite: no request found in this buffer")
     return
   end
   M.run(req, opts)
@@ -143,48 +173,54 @@ function M.run_all(opts)
   local bufnr = vim.api.nvim_get_current_buf()
   local doc = document(bufnr)
   if #doc.requests == 0 then
-    util.err("curlite: no requests in this buffer")
+    util.emit("no_request", "curlite: no requests in this buffer")
     return
   end
 
   ui.clear_inline(bufnr)
   local ok_count, fail_count, skip_count = 0, 0, 0
 
-  exec.send_sequence(doc.requests, {
-    bufnr = bufnr,
-    stop_on_error = opts.stop_on_error,
-    on_each = function(result)
-      ui.set_inline(result, bufnr)
-      if result.skipped then
-        skip_count = skip_count + 1
-      elseif result.response and result.response.status < 400 and not result.error then
-        ok_count = ok_count + 1
-      else
-        fail_count = fail_count + 1
-      end
-      -- A skipped request has no response, so showing it would replace the
-      -- last real one with an empty window and push a dead entry into the
-      -- history. The inline status above already says it was skipped.
-      if not opts.quiet and not result.skipped then
-        ui.show(result)
-      end
-    end,
-    on_finish = function(results)
-      util.alert(
-        ("curlite: ran %d request%s — %d ok, %d failed%s"):format(
-          #results - skip_count,
-          (#results - skip_count) == 1 and "" or "s",
-          ok_count,
-          fail_count,
-          skip_count > 0 and (", %d skipped"):format(skip_count) or ""
-        ),
-        fail_count > 0 and vim.log.levels.WARN or vim.log.levels.INFO
-      )
-      if opts.on_finish then
-        opts.on_finish(results)
-      end
-    end,
-  })
+  with_env(doc.source, function()
+    exec.send_sequence(doc.requests, {
+      bufnr = bufnr,
+      stop_on_error = opts.stop_on_error,
+      on_each = function(result)
+        ui.set_inline(result, bufnr)
+        if result.skipped then
+          skip_count = skip_count + 1
+        elseif result.response and result.response.status < 400 and not result.error then
+          ok_count = ok_count + 1
+        else
+          fail_count = fail_count + 1
+        end
+        -- A skipped request has no response, so showing it would replace the
+        -- last real one with an empty window and push a dead entry into the
+        -- history. The inline status above already says it was skipped.
+        if not opts.quiet and not result.skipped then
+          ui.show(result)
+        end
+      end,
+      on_finish = function(results)
+        util.emit(
+          "run_summary",
+          ("curlite: ran %d request%s — %d ok, %d failed%s"):format(
+            #results - skip_count,
+            (#results - skip_count) == 1 and "" or "s",
+            ok_count,
+            fail_count,
+            skip_count > 0 and (", %d skipped"):format(skip_count) or ""
+          ),
+          {
+            level = fail_count > 0 and vim.log.levels.WARN or vim.log.levels.INFO,
+            data = { ok = ok_count, failed = fail_count, skipped = skip_count },
+          }
+        )
+        if opts.on_finish then
+          opts.on_finish(results)
+        end
+      end,
+    })
+  end)
 end
 
 --- Send every request from the cursor's position down.
@@ -194,25 +230,27 @@ function M.run_from_cursor()
   local line = vim.api.nvim_win_get_cursor(0)[1]
   local _, idx = parser.request_at(doc, line)
   if not idx then
-    util.err("curlite: no request found in this buffer")
+    util.emit("no_request", "curlite: no request found in this buffer")
     return
   end
   local rest = vim.list_slice(doc.requests, idx)
-  exec.send_sequence(rest, {
-    bufnr = bufnr,
-    on_each = function(result)
-      ui.set_inline(result, bufnr)
-      if not result.skipped then
-        ui.show(result)
-      end
-    end,
-  })
+  with_env(doc.source, function()
+    exec.send_sequence(rest, {
+      bufnr = bufnr,
+      on_each = function(result)
+        ui.set_inline(result, bufnr)
+        if not result.skipped then
+          ui.show(result)
+        end
+      end,
+    })
+  end)
 end
 
 --- Re-send the last request that was sent.
 function M.replay()
   if not exec.last then
-    util.err("curlite: nothing to replay")
+    util.emit("no_request", "curlite: nothing to replay")
     return
   end
   M.run(exec.last.request, { bufnr = exec.last.bufnr })
@@ -222,7 +260,7 @@ end
 function M.inspect()
   local req = request_at_cursor()
   if not req then
-    util.err("curlite: no request found in this buffer")
+    util.emit("no_request", "curlite: no request found in this buffer")
     return
   end
 
@@ -277,7 +315,7 @@ end
 function M.hover()
   local req = request_at_cursor()
   if not req then
-    util.err("curlite: no request found in this buffer")
+    util.emit("no_request", "curlite: no request found in this buffer")
     return
   end
 
@@ -339,11 +377,17 @@ function M.hover()
 end
 
 --- Pick the active environment.
-function M.select_env()
+---
+--- Opens the two-pane picker: environments on the left, the variables each one
+--- resolves to on the right, so you can see what you are switching to.
+---@param opts { on_choice: fun(name: string|nil), quiet: boolean }|nil
+function M.select_env(opts)
+  opts = opts or {}
   local source = vim.api.nvim_buf_get_name(0)
   local names = env.names(source)
   if #names == 0 then
-    util.err(
+    util.emit(
+      "env_missing",
       ("curlite: no environments found — create %s next to this file"):format(
         config.get().env.files[1]
       )
@@ -351,18 +395,23 @@ function M.select_env()
     return
   end
 
-  local current = env.current(source)
-  vim.ui.select(names, {
-    prompt = "Environment",
-    format_item = function(name)
-      return name == current and ("● " .. name) or ("  " .. name)
+  require("curlite.picker").open({
+    source = source,
+    on_choice = function(name)
+      env.select(name, source)
+      if not opts.quiet then
+        util.emit(
+          "env_selected",
+          name and ("curlite: environment → %s"):format(name)
+            or "curlite: no environment — only shared variables will resolve",
+          { data = { env = name } }
+        )
+      end
+      if opts.on_choice then
+        opts.on_choice(name)
+      end
     end,
-  }, function(choice)
-    if choice then
-      env.select(choice, source)
-      util.alert(("curlite: environment → %s"):format(choice), vim.log.levels.INFO)
-    end
-  end)
+  })
 end
 
 --- The active environment's name, for a statusline component.
@@ -375,7 +424,7 @@ end
 function M.pick_request()
   local doc = document()
   if #doc.requests == 0 then
-    util.err("curlite: no requests in this buffer")
+    util.emit("no_request", "curlite: no requests in this buffer")
     return
   end
 
@@ -438,12 +487,12 @@ end
 function M.copy_curl(register)
   local req = request_at_cursor()
   if not req then
-    util.err("curlite: no request found in this buffer")
+    util.emit("no_request", "curlite: no request found in this buffer")
     return
   end
   local cmd, err = exec.prepare(req)
   if not cmd then
-    util.err(("curlite: %s"):format(err or "could not build the request"))
+    util.emit("request_error", ("curlite: %s"):format(err or "could not build the request"))
     return
   end
   local text = require("curlite.curl").to_shell(cmd)
@@ -452,7 +501,7 @@ function M.copy_curl(register)
   end
   vim.fn.setreg(register or "+", text)
   vim.fn.setreg('"', text)
-  util.alert("curlite: curl command yanked", vim.log.levels.INFO)
+  util.emit("yank", "curlite: curl command yanked")
 end
 
 --- Convert a curl command (from a register, or prompted for) into a request
@@ -479,7 +528,7 @@ end
 function M.insert_curl(command)
   local lines, err = require("curlite.convert").from_curl(command)
   if not lines then
-    util.err(("curlite: %s"):format(err))
+    util.emit("parse_error", ("curlite: %s"):format(err))
     return
   end
   local row = vim.api.nvim_win_get_cursor(0)[1]
@@ -517,13 +566,15 @@ function M.clear()
   ui.clear_inline(vim.api.nvim_get_current_buf())
   ui.reset()
   exec.reset()
-  util.notify("curlite: cleared", vim.log.levels.INFO)
+  util.emit("cleared", "curlite: cleared")
 end
 
 --- Cancel every in-flight request.
 function M.cancel()
   local n = exec.cancel_all()
-  util.alert(("curlite: cancelled %d request%s"):format(n, n == 1 and "" or "s"), vim.log.levels.INFO)
+  util.emit("cancelled", ("curlite: cancelled %d request%s"):format(n, n == 1 and "" or "s"), {
+    data = { count = n },
+  })
 end
 
 --- Run a request headlessly and hand the result to a callback. Useful from a
@@ -536,7 +587,7 @@ function M.inline(spec, cb)
     local doc = parser.parse(vim.split(spec, "\n", { plain = true }), vim.fn.getcwd() .. "/inline.http")
     req = doc.requests[1]
     if not req then
-      util.err("curlite: inline spec contained no request")
+      util.emit("no_request", "curlite: inline spec contained no request")
       return
     end
   end
@@ -565,7 +616,7 @@ end
 function M.run_file(path, cb)
   local doc, err = parser.parse_file(vim.fn.expand(path))
   if not doc then
-    util.err(("curlite: %s"):format(err))
+    util.emit("parse_error", ("curlite: %s"):format(err))
     return
   end
   local scripts = require("curlite.scripts")
@@ -583,7 +634,8 @@ function M.run_file(path, cb)
       if cb then
         cb(summary)
       else
-        util.alert(
+        util.emit(
+          "run_summary",
           ("curlite: %s — %d request%s, %d passed, %d failed"):format(
             vim.fn.fnamemodify(path, ":t"),
             #results,
@@ -591,7 +643,7 @@ function M.run_file(path, cb)
             passed,
             failed
           ),
-          failed > 0 and vim.log.levels.WARN or vim.log.levels.INFO
+          { level = failed > 0 and vim.log.levels.WARN or vim.log.levels.INFO, data = summary }
         )
       end
     end,
@@ -627,6 +679,7 @@ function M.attach(bufnr)
   local maps = cfg.keymaps
 
   require("curlite.highlight").attach(bufnr)
+  require("curlite.complete").attach(bufnr)
 
   if maps ~= false then
     local function map(lhs, fn, desc)
@@ -669,6 +722,26 @@ function M.attach(bufnr)
   end
 end
 
+--- Print every notification event, its default level and whether it is
+--- currently getting through. This is the list `notify.events` is keyed by.
+function M.events()
+  local notify = require("curlite.notify")
+  local names = vim.tbl_keys(notify.events)
+  table.sort(names)
+
+  local lines = { { "curlite notification events\n", "Title" } }
+  for _, name in ipairs(names) do
+    local spec = notify.events[name]
+    local label = ({ [0] = "trace", "debug", "info", "warn", "error" })[spec.level] or "?"
+    local on = notify.enabled(name, spec.level, { msg = "" })
+    table.insert(lines, { ("  %-16s "):format(name), on and "DiagnosticOk" or "Comment" })
+    table.insert(lines, { ("%-6s "):format(label), "Comment" })
+    table.insert(lines, { on and "shown  " or "hidden ", on and "DiagnosticOk" or "Comment" })
+    table.insert(lines, { spec.desc .. (spec.important and "  (important)" or "") .. "\n", "Comment" })
+  end
+  vim.api.nvim_echo(lines, true, {})
+end
+
 local SUBCOMMANDS = {
   send = M.run_at_cursor,
   all = M.run_all,
@@ -700,6 +773,7 @@ local SUBCOMMANDS = {
   health = function()
     vim.cmd("checkhealth curlite")
   end,
+  events = M.events,
 }
 
 local function register_commands()
@@ -710,7 +784,10 @@ local function register_commands()
     local sub = opts.fargs[1] or "send"
     local fn = SUBCOMMANDS[sub]
     if not fn then
-      util.err(("curlite: unknown subcommand `%s` (try: %s)"):format(sub, table.concat(names, ", ")))
+      util.emit(
+        "error",
+        ("curlite: unknown subcommand `%s` (try: %s)"):format(sub, table.concat(names, ", "))
+      )
       return
     end
     fn()
@@ -740,6 +817,10 @@ local function register_autocmds()
     group = group,
     pattern = config.get().filetypes,
     callback = function(args)
+      -- Opening an http file starts with no environment, every time. Carrying
+      -- the last one over is how a request meant for dev ends up at prod, so
+      -- the choice is made again for each file you open.
+      env.forget(vim.api.nvim_buf_get_name(args.buf))
       M.attach(args.buf)
     end,
   })

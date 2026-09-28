@@ -6,6 +6,7 @@
 ---
 --- Options:
 ---   show_env      include the environment name (default true)
+---   no_env_text   what to show while none is selected (default "no env")
 ---   show_status   include the last response's status and time (default true)
 ---   only_http     render nothing outside `.http` buffers (default true)
 
@@ -15,6 +16,8 @@ local default_options = {
   show_env = true,
   show_status = true,
   only_http = true,
+  -- What to show while no environment has been picked. "" hides it.
+  no_env_text = "no env",
   icon = "󱂛",
 }
 
@@ -37,8 +40,10 @@ function Component:update_status()
   local parts = {}
 
   if opts.show_env then
-    local name = curlite.current_env()
-    if name then
+    -- "no env" is the state worth seeing: it says a send will stop and ask,
+    -- and it is what you are looking at before every first request.
+    local name = curlite.current_env() or opts.no_env_text
+    if name and name ~= "" then
       table.insert(parts, name)
     end
   end

@@ -31,14 +31,14 @@ curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS C
 
 - **Send from the buffer** — the request under the cursor, all of them, or everything from the cursor down. ` 200 OK` appears inline at the end of the request line; timing, size and test totals can be enabled there too.
 - **Six response panes** — body, headers, both, timing and size, curl's verbose trace, script output. Open them with `B`/`H`/`A`/`S`/`T`/`O`, or jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `jq` filters it live with `/`.
-- **Environments** from `http-client.env.json` — a `$shared` block, a gitignored `.private.` overlay, and per-project memory of which one you picked.
+- **Environments** from `http-client.env.json` — a `$curliteshared` block, a gitignored `.private.` overlay, per-project `$default_headers`, and a picker that shows each environment's variables beside its name. Nothing is selected until you pick: opening a file starts with no environment, and the first send asks which one.
 - **Variables everywhere** — document, environment, process env, `.env`, prompts, dynamic (`{{$uuid}}`, `{{$timestamp -1 d}}`, `{{$randomInt 1 100}}`) and shell (`{{$exec pass show api/token}}`). Resolution is recursive, so `@base = {{host}}/v1` works.
 - **Request chaining** — `{{LOGIN.response.body.$.data.token}}` reads an earlier response, and `# @run LOGIN` makes curlite send it for you first.
 - **Lua scripts**, not JavaScript — `< {% ... %}` before, `> {% ... %}` after, with `request`, `response` and `client` in scope. You're already in a Lua editor.
 - **Assertions** — `# @assert status == 200` and `client.test(...)`, tallied in the winbar. `:CurliteRun file.http` runs a whole file and reports the totals.
 - **Auth** — Bearer, Basic, Digest, NTLM, Negotiate, AWS SigV4 and client certificates, each mapped onto the curl flag that implements it. A shared cookie jar carries a login's session into the next request.
 - **Paste a curl command**, get a request back — including what Chrome's "Copy as cURL" produces. And the reverse: yank any request as a pasteable curl line.
-- **Completion** for blink.cmp — variables with their values, chain references, methods, header names and values, `# @` metadata.
+- **Completion**, with or without a plugin — `{{` offers every variable that would actually resolve there, each with its value and the environment it came from, plus chain references, methods, header names and values, and `# @` metadata. blink.cmp and nvim-cmp sources are included; with neither, Neovim's own `omnifunc` is wired up and opens by itself after `{{`.
 
 ## Requirements
 
@@ -205,15 +205,56 @@ Cycles terminate, and a failed dependency blocks the request that needed it.
 
 ```json
 {
-  "$shared": { "apiVersion": "v1" },
+  "$curliteshared": { "apiVersion": "v1" },
   "dev":  { "host": "http://localhost:3000" },
   "prod": { "host": "https://api.example.com", "auth": { "clientId": "abc" } }
 }
 ```
 
-`$shared` is merged under every environment. Nested values are reachable as `{{auth.clientId}}`. `http-client.private.env.json` is merged over the public file and is the one to gitignore. Files nearer the `.http` file win over ones further up. `//` and `/* */` comments are tolerated (and a `//` inside a string, as in `https://`, is left alone).
+`$curliteshared` is merged under every environment. JetBrains' `$shared` is read as well, so a file written for another client works unchanged; where both define a key, `$curliteshared` wins. Nested values are reachable as `{{auth.clientId}}`. `http-client.private.env.json` is merged over the public file and is the one to gitignore. Files nearer the `.http` file win over ones further up. `//` and `/* */` comments are tolerated (and a `//` inside a string, as in `https://`, is left alone).
 
-Pick with `<leader>Re`. The choice is remembered per project. A `.env` in the same directories is read too, as `{{$dotenv NAME}}`.
+**Nothing is selected until you say so.** Opening a `.http` file starts with no environment — never the one you picked yesterday, never the first one in the file — and the first send stops and opens the picker instead of going out against a host you did not choose. Pick with `<leader>Re` or `:Curlite env`:
+
+```
+╭─ Environment ──────────╮ ╭─ dev ──────────────────────────────────╮
+│   (no environment)     │ │{                                       │
+│ ● dev            6 vars│ │  "apiVersion": "v1",    $curliteshared │
+│   prod           5 vars│ │  "clientId": "demo",    $curliteshared │
+│                        │ │  "host": "http://localhost:3000",  dev │
+│                        │ │  "verbose": true                   dev │
+│                        │ │}                                       │
+╰─ <CR> select   q cancel ╯ ╰────────────────────────────────────────╯
+```
+
+The right-hand pane is what that environment actually resolves to — the shared block merged with its own values, every line marked with where it came from — so you choose by looking at the host rather than by remembering what `dev2` meant. `(no environment)` clears the selection and shows the shared block alone; choosing it counts as a choice, so sends stop asking.
+
+Set `env.default` to a name if you want one active without being asked, or `env.require_selection = false` to let requests run with only the shared variables. A `.env` in the same directories is read too, as `{{$dotenv NAME}}`.
+
+**Default headers.** A `$default_headers` object sends headers with every request in the project — in the shared block, in an environment, or both:
+
+```json
+{
+  "$curliteshared": {
+    "$default_headers": { "Accept": "application/json", "X-Client": "curlite" }
+  },
+  "dev":  { "host": "http://localhost:3000", "token": "dev-token" },
+  "prod": {
+    "host": "https://api.example.com",
+    "token": "{{$dotenv PROD_TOKEN}}",
+    "$default_headers": { "Authorization": "Bearer {{token}}", "X-Client": false }
+  }
+}
+```
+
+This is where a header belonging to the *project* goes, as opposed to your editor (`request.default_headers`) or a single request. `{{...}}` in a value resolves against the request going out, so `"Bearer {{token}}"` picks up whichever token the selected environment defines. An environment's headers merge over the shared ones, and `false` drops an inherited one rather than sending it — `prod` above sends no `X-Client`. A request that writes the header itself always wins, in any case, and nothing is sent twice. Later wins:
+
+```
+request.default_headers  <  $shared's $default_headers
+                         <  the environment's $default_headers
+                         <  the header on the request itself
+```
+
+The picker lists them under the variables, `:Curlite inspect` and `curl` show them resolved, and `:checkhealth curlite` names the ones in force.
 
 </details>
 
@@ -344,7 +385,11 @@ The rest describe curlite's own furniture and are fixed links — override them 
 </details>
 
 <details>
-<summary><b>blink.cmp & lualine</b></summary>
+<summary><b>Completion, lualine</b></summary>
+
+Completion works out of the box: every `.http` buffer gets `omnifunc`, and after `{{` the menu opens by itself. With a completion engine, register the matching source instead — it is the same items either way.
+
+blink.cmp:
 
 ```lua
 require("blink.cmp").setup({
@@ -355,11 +400,21 @@ require("blink.cmp").setup({
 })
 ```
 
+nvim-cmp — the source registers itself, so it only needs naming:
+
+```lua
+require("cmp").setup.filetype("http", {
+  sources = { { name = "curlite" }, { name = "buffer" } },
+})
+```
+
+Inside `{{` you get the document's `@variables`, the shared block, the selected environment's variables (each with its value and where it came from), nested paths like `auth.clientId`, script globals, prompt answers, the `{{$...}}` functions and the named requests you can chain from. Only what would actually resolve is offered: an environment you have not selected does not appear.
+
 ```lua
 require("lualine").setup({ sections = { lualine_x = { "curlite" } } })
 ```
 
-The lualine component shows the active environment and the last response. `require("curlite").current_env()` is the building block for any other statusline.
+The lualine component shows the active environment — or `no env` while none is selected, which is the state worth seeing — and the last response. `require("curlite").current_env()` is the building block for any other statusline.
 
 </details>
 
@@ -376,8 +431,9 @@ The file format is identical, so your `.http` files and `http-client.env.json` w
 | **OAuth2** | no built-in flow — chain a token request instead. |
 | **OpenAPI explorer** | not included. |
 | **filtering** | a jq expression over the body (`/` in the response window). |
+| **environments** | nothing is selected until you pick. Opening a file starts with none, and the first send opens the picker rather than reusing yesterday's choice. |
 
-Environments, `$shared`, dynamic variables, request chaining, prompts, assertions, `>>` redirects, `< file` bodies, multipart and the scratchpad all behave the same way.
+Environments, the shared block, dynamic variables, request chaining, prompts, assertions, `>>` redirects, `< file` bodies, multipart and the scratchpad all behave the same way.
 
 </details>
 
@@ -426,7 +482,10 @@ require("curlite").setup({
     verify_ssl = true,
   },
   response = { format = true },
-  notify   = "errors",      -- all | errors | none
+  notify = {
+    level  = "warn",        -- the floor for ordinary messages
+    events = { env_selected = false },  -- silence one message by name
+  },
 })
 ```
 
@@ -454,7 +513,7 @@ require("curlite").setup({
 
   request = {
     variables_scope = "request",           -- or "document" (kulala's behaviour)
-    default_headers = { ["User-Agent"] = "curlite.nvim" },
+    default_headers = { ["User-Agent"] = "curlite.nvim" },  -- env `$default_headers` wins
     infer_content_type = true,             -- JSON-looking body -> application/json
     substitute_in_response = false,        -- expand {{...}} in the response too
   },
@@ -464,6 +523,12 @@ require("curlite").setup({
     width = 0.5,                           -- fraction or columns, left/right
     height = 0.5,                          -- fraction or rows, above/below
     float = { width = 0.8, height = 0.8, border = "rounded" },
+    picker = {                             -- the environment picker
+      width = 0.8, height = 0.7,           -- fractions of the editor
+      list_width = 0.3,                    -- the rest previews the variables
+      border = "rounded",
+      preview = true,                      -- false = a plain list of names
+    },
     default_pane = "body",
     panes = { "body", "headers", "all", "stats", "verbose", "script" },
     winbar = true,                         -- the pane tabs and status line
@@ -537,8 +602,16 @@ require("curlite").setup({
   env = {
     files = { "http-client.env.json", "http-client.private.env.json" },
     dotenv = ".env",                       -- false disables {{$dotenv NAME}}
-    default = nil,                         -- nil = remember the last choice
-    shared_key = "$shared",
+    default = nil,                         -- nil = none, until you pick one
+    require_selection = true,              -- a send with none selected opens the picker
+    shared_key = { "$curliteshared", "$shared" },
+    headers_key = { "$default_headers", "$defaultHeaders" },  -- per-project default headers
+  },
+
+  completion = {
+    enable = true,                         -- set `omnifunc` on http buffers
+    auto_trigger = true,                   -- open the menu after `{{` (no engine loaded)
+    cmp = true,                            -- register the nvim-cmp source when cmp is there
   },
 
   scripts = {
@@ -592,7 +665,21 @@ require("curlite").setup({
     refresh         = "R",
   },
 
-  notify = "errors",                       -- all|errors|none
+  -- Which vim.notify messages get through. Every message curlite shows is
+  -- tagged with an event name, so you silence one by name rather than
+  -- turning the plugin quiet. `:Curlite events` lists them.
+  notify = {
+    enabled = true,                        -- master switch; false hides errors too
+    level = "warn",                        -- floor for ordinary events
+    events = {                             -- false | true | a per-event level
+      -- request_sent = true,              -- "GET https://..." as it goes out
+      -- request_done = "warn",            -- 4xx/5xx only; 200s stay quiet
+      -- env_selected = false,             -- stop announcing the environment
+    },
+    filter = nil,                          -- function(ev) -> boolean|nil, last word
+    backend = nil,                         -- function(msg, level, opts) -> fidget, ...
+    title = "curlite",
+  },
   debug = false,                           -- log commands to stdpath("log")
 })
 ```
