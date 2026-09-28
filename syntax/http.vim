@@ -44,8 +44,19 @@ syn match httpMetaValue ".*$" contained contains=httpTemplate
 syn keyword httpTodo TODO FIXME XXX NOTE contained
 
 " --- the request line -------------------------------------------------------
-syn match httpMethod "^\s*\<\%(GET\|POST\|PUT\|PATCH\|DELETE\|HEAD\|OPTIONS\|TRACE\|CONNECT\|QUERY\|GRAPHQL\)\>"
-      \ nextgroup=httpURL skipwhite
+" One match per method, so each keeps its own colour. A single `httpMethod`
+" group is what made every method render identically when treesitter is absent.
+syn match httpMethodGet     "^\s*\<GET\>"     nextgroup=httpURL skipwhite
+syn match httpMethodPost    "^\s*\<POST\>"    nextgroup=httpURL skipwhite
+syn match httpMethodPut     "^\s*\<PUT\>"     nextgroup=httpURL skipwhite
+syn match httpMethodPatch   "^\s*\<PATCH\>"   nextgroup=httpURL skipwhite
+syn match httpMethodDelete  "^\s*\<DELETE\>"  nextgroup=httpURL skipwhite
+syn match httpMethodHead    "^\s*\<HEAD\>"    nextgroup=httpURL skipwhite
+syn match httpMethodOptions "^\s*\<OPTIONS\>" nextgroup=httpURL skipwhite
+syn match httpMethodTrace   "^\s*\<TRACE\>"   nextgroup=httpURL skipwhite
+syn match httpMethodConnect "^\s*\<CONNECT\>" nextgroup=httpURL skipwhite
+syn match httpMethodQuery   "^\s*\<QUERY\>"   nextgroup=httpURL skipwhite
+syn match httpMethodGraphql "^\s*\<GRAPHQL\>" nextgroup=httpURL skipwhite
 syn match httpURL "\S\+" contained contains=httpTemplate nextgroup=httpVersion skipwhite
 syn match httpVersion "HTTP/[0-9.]\+" contained
 syn match httpURLCont "^\s\+[?&#]\S*$" contains=httpTemplate
@@ -88,7 +99,17 @@ hi def link httpMetaValue    CurliteHttpMetaValue
 hi def link httpVariableDef  CurliteHttpVariable
 hi def link httpTemplate     CurliteHttpTemplate
 hi def link httpDynamic      CurliteHttpDynamic
-hi def link httpMethod       CurliteHttpMethodWrite
+hi def link httpMethodGet     CurliteHttpMethodGet
+hi def link httpMethodPost    CurliteHttpMethodPost
+hi def link httpMethodPut     CurliteHttpMethodPut
+hi def link httpMethodPatch   CurliteHttpMethodPatch
+hi def link httpMethodDelete  CurliteHttpMethodDelete
+hi def link httpMethodHead    CurliteHttpMethodHead
+hi def link httpMethodOptions CurliteHttpMethodOptions
+hi def link httpMethodTrace   CurliteHttpMethodTrace
+hi def link httpMethodConnect CurliteHttpMethodConnect
+hi def link httpMethodQuery   CurliteHttpMethodQuery
+hi def link httpMethodGraphql CurliteHttpMethodGraphql
 hi def link httpURL          CurliteHttpUrl
 hi def link httpURLCont      Underlined
 hi def link httpVersion      CurliteHttpVersion

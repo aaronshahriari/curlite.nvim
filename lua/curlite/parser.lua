@@ -62,6 +62,7 @@ M.methods = METHODS
 ---@field start_line integer          -- 1-indexed, inclusive
 ---@field end_line integer            -- 1-indexed, inclusive
 ---@field url_line integer|nil        -- line the request line sits on
+---@field body_line integer|nil       -- first line of the raw body, if any
 ---@field source string|nil           -- file the request came from
 
 ---@class curlite.Document
@@ -218,11 +219,18 @@ function M.parse(lines, source)
     while #body_lines > 0 and trim(body_lines[#body_lines]) == "" do
       table.remove(body_lines)
     end
+    -- `body_line` was recorded against the first *accumulated* line, so it has
+    -- to move with every leading blank that is dropped here.
     while #body_lines > 0 and trim(body_lines[1]) == "" do
       table.remove(body_lines, 1)
+      if req.body_line then
+        req.body_line = req.body_line + 1
+      end
     end
     if #body_lines > 0 then
       req.body = table.concat(body_lines, "\n")
+    else
+      req.body_line = nil
     end
 
     req.metadata = vim.tbl_extend("keep", req.metadata, pending_meta)
@@ -505,6 +513,9 @@ function M.parse(lines, source)
         end
         req.end_line = i
         goto continue
+      end
+      if #body_lines == 0 then
+        req.body_line = i
       end
       table.insert(body_lines, line)
       req.end_line = i

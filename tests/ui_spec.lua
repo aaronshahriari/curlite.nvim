@@ -232,6 +232,29 @@ function M.body_pane_holds_only_the_body(t)
   ui.close()
 end
 
+function M.slash_filters_only_a_json_body(t)
+  ui.show(fake(), { pane = "body", push = true })
+  t.truthy(ui.jq_filter_available(), "JSON Body enables jq")
+
+  ui.set_pane("headers")
+  t.falsy(ui.jq_filter_available(), "Headers keeps normal search")
+  local buf = vim.api.nvim_win_get_buf(ui.winid)
+  local mapping
+  vim.api.nvim_buf_call(buf, function()
+    mapping = vim.fn.maparg("/", "n", false, true)
+  end)
+  t.eq(mapping.expr, 1)
+  t.eq(mapping.callback(), "/", "the mapping falls through to native /")
+
+  local text = fake()
+  text.response.body = "plain response"
+  text.response.json = nil
+  text.response.headers = require("curlite.response").ci_headers({ ["Content-Type"] = "text/plain" })
+  ui.show(text, { pane = "body", push = true })
+  t.falsy(ui.jq_filter_available(), "a plain-text Body keeps normal search")
+  ui.reset()
+end
+
 function M.stats_pane_reports_the_timing_breakdown(t)
   local text = table.concat(render("stats").lines, "\n")
   for _, label in ipairs({
@@ -276,6 +299,26 @@ function M.pane_cycling_wraps(t)
   t.eq(ui.pane, panes[1], "the last pane should wrap to the first")
   ui.cycle_pane(-1)
   t.eq(ui.pane, panes[#panes])
+  ui.reset()
+end
+
+function M.direct_pane_keymaps_select_the_kulala_views(t)
+  ui.show(fake(), { pane = "stats", push = true })
+  local buf = vim.api.nvim_win_get_buf(ui.winid)
+
+  -- `T` for the verbose pane, not kulala's `V`: this buffer is one you select
+  -- out of, so `V` is left to linewise Visual mode.
+  for key, pane in pairs({ B = "body", H = "headers", A = "all", S = "stats", T = "verbose", O = "script" }) do
+    local mapping
+    vim.api.nvim_buf_call(buf, function()
+      mapping = vim.fn.maparg(key, "n", false, true)
+    end)
+    t.eq(type(mapping.callback), "function", key .. " should have a buffer-local callback")
+    mapping.callback()
+    t.eq(ui.pane, pane, key .. " should open the " .. pane .. " pane")
+    buf = vim.api.nvim_win_get_buf(ui.winid)
+  end
+
   ui.reset()
 end
 
@@ -349,8 +392,34 @@ function M.toggle_restores_a_rearranged_split(t)
   cfg.display, cfg.width, cfg.focus = saved.display, saved.width, saved.focus
 end
 
-function M.toggle_defaults_to_leader_h(t)
-  t.eq(require("curlite.config").defaults.keymaps.toggle, "<leader>h")
+function M.keymaps_follow_kulala(t)
+  local defaults = require("curlite.config").defaults
+  t.eq(defaults.keymaps.toggle, "<leader>Ro")
+  t.eq(defaults.keymaps.send_enter, "<CR>")
+  t.eq(defaults.result_keymaps.show_body, "B")
+  t.eq(defaults.result_keymaps.show_headers, "H")
+end
+
+function M.split_defaults_to_half_the_editor(t)
+  local cfg = require("curlite.config").defaults.ui
+  t.eq(cfg.width, 0.5)
+  t.eq(cfg.height, 0.5)
+end
+
+function M.vertical_split_opens_at_half_the_editor(t)
+  local config = require("curlite.config")
+  local size = require("curlite.size")
+  local cfg = config.get().ui
+  local saved = { display = cfg.display, width = cfg.width, focus = cfg.focus }
+  cfg.display, cfg.width, cfg.focus = "right", 0.5, false
+
+  ui.reset()
+  local expected = size.resolve("width", 0.5)
+  ui.show(fake(), { pane = "body", push = true })
+  t.eq(vim.api.nvim_win_get_width(ui.winid), expected)
+
+  ui.reset()
+  cfg.display, cfg.width, cfg.focus = saved.display, saved.width, saved.focus
 end
 
 function M.binary_body_is_described_not_dumped(t)
@@ -396,8 +465,8 @@ function M.inline_status_marks_the_request_line(t)
   t.eq(#marks, 1)
   t.eq(marks[1][2], 1, "the mark belongs on the request line")
   t.match(marks[1][4].virt_text[1][1], "201 Created")
-  t.match(marks[1][4].virt_text[1][1], "140ms")
-  t.match(marks[1][4].virt_text[1][1], "1/2")
+  t.falsy(marks[1][4].virt_text[1][1]:find("140ms", 1, true), "timing stays in the winbar by default")
+  t.falsy(marks[1][4].virt_text[1][1]:find("1/2", 1, true), "test tally stays in the winbar by default")
   -- A failing assertion should colour it as a failure.
   t.eq(marks[1][4].virt_text[1][2], "CurliteTestFail")
 
@@ -465,6 +534,209 @@ function M.redrawing_the_same_result_reuses_the_buffer(t)
     "an unchanged pane should not be rewritten"
   )
   ui.close()
+end
+
+function M.response_window_has_no_cursorline_by_default(t)
+  local ui = require("curlite.ui")
+  ui.show(fake())
+  t.falsy(vim.wo[ui.winid].cursorline, "no cursor-line bar unless asked for")
+  ui.close()
+end
+
+function M.cursorline_can_be_turned_on(t)
+  local config = require("curlite.config")
+  local ui = require("curlite.ui")
+  local previous = config.get().ui.cursorline
+  config.get().ui.cursorline = true
+
+  ui.close()
+  ui.show(fake())
+  local on = vim.wo[ui.winid].cursorline
+  config.get().ui.cursorline = previous
+  ui.close()
+
+  t.truthy(on, "ui.cursorline = true restores the bar")
+end
+
+-- curlite deliberately diverges from kulala here. kulala binds `V` to the
+-- verbose pane; this window is a buffer you select lines out of, so `V` stays
+-- with linewise Visual mode and the pane moves to `T`, for trace.
+function M.linewise_visual_is_not_shadowed_in_the_response_window(t)
+  local config = require("curlite.config")
+  local ui = require("curlite.ui")
+  ui.show(fake())
+  local buf = vim.api.nvim_win_get_buf(ui.winid)
+
+  local bound = {}
+  for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+    bound[map.lhs] = true
+  end
+  ui.close()
+
+  t.eq(config.get().result_keymaps.show_verbose, "T")
+  t.falsy(bound["V"], "V is left to linewise Visual mode")
+  t.truthy(bound["T"], "T opens the verbose/trace pane")
+end
+
+-- `K` is a hover, not the `<leader>Ri` window: small, anchored to the cursor,
+-- unfocused, and gone the moment you move.
+local function hover_float()
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_config(win).relative ~= "" then
+      return win
+    end
+  end
+end
+
+function M.hover_opens_an_unfocused_cursor_anchored_float(t)
+  local curlite = require("curlite")
+  local buf = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_set_current_buf(buf)
+  vim.bo[buf].filetype = "http"
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+    "@host = https://api.example.com",
+    "",
+    "GET {{host}}/things",
+    "Accept: application/json",
+  })
+  vim.api.nvim_win_set_cursor(0, { 3, 0 })
+
+  curlite.hover()
+  local win = hover_float()
+  t.truthy(win, "K opens a float")
+  t.eq(vim.api.nvim_win_get_config(win).relative, "win", "anchored to the cursor, not the editor")
+  t.falsy(win == vim.api.nvim_get_current_win(), "the cursor stays in the request buffer")
+
+  local lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false)
+  local text = table.concat(lines, "\n")
+  t.match(text, "GET https://api%.example%.com/things", "variables are resolved")
+  t.match(text, "Accept: application/json", "headers come along")
+  t.falsy(text:find("curl", 1, true), "no curl equivalent -- that is `inspect`")
+
+  pcall(vim.api.nvim_win_close, win, true)
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
+--- The inline text for `fake()`, with `ui.inline` overridden for one call.
+---@param overrides table
+local function inline_text(overrides)
+  local config = require("curlite.config")
+  local previous = vim.deepcopy(config.get().ui.inline)
+  config.get().ui.inline = vim.tbl_extend("force", previous, overrides)
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "### S", "POST https://x.dev" })
+  ui.set_inline(fake(), buf)
+  local ns = vim.api.nvim_get_namespaces()["curlite_inline"]
+  local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
+
+  config.get().ui.inline = previous
+  return marks[1] and marks[1][4].virt_text[1][1] or nil
+end
+
+function M.inline_details_are_opt_in(t)
+  t.match(inline_text({ time = true }), "140ms", "time can be turned back on")
+  t.match(inline_text({ tests = true }), "1/2", "so can the assertion tally")
+  t.match(inline_text({ size = true }), "B", "and the body size")
+end
+
+function M.inline_status_can_be_dropped_without_losing_the_rest(t)
+  local text = inline_text({ status = false, time = true })
+  t.falsy(text:find("201", 1, true), "the status itself is optional too")
+  t.match(text, "140ms")
+end
+
+function M.inline_with_everything_off_draws_nothing(t)
+  t.eq(
+    inline_text({ icon = false, status = false, time = false, size = false, tests = false }),
+    nil,
+    "no empty virtual text when every part is off"
+  )
+end
+
+--- A buffer holding one request, and that request as the parser sees it.
+local function flash_buffer()
+  local lines = {
+    "### SAMPLE",
+    "POST https://x.dev",
+    "Content-Type: application/json",
+    "",
+    '{"a":1}',
+  }
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  local doc = require("curlite.parser").parse(lines)
+  return buf, doc.requests[1]
+end
+
+local function flash_rows(buf)
+  local ns = vim.api.nvim_get_namespaces()["curlite_flash"]
+  local rows = {}
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+    rows[#rows + 1] = mark[2]
+  end
+  table.sort(rows)
+  return rows
+end
+
+function M.flash_covers_the_request_that_was_sent(t)
+  local buf, req = flash_buffer()
+  ui.flash(req, buf)
+
+  local rows = flash_rows(buf)
+  t.eq(rows, { 0, 1, 2, 3, 4 }, "the flash covers the complete section, including its blank body separator")
+
+  ui.clear_flash()
+  t.eq(#flash_rows(buf), 0, "clear_flash removes it")
+end
+
+function M.flash_scope_line_covers_only_the_request_line(t)
+  local config = require("curlite.config")
+  local previous = config.get().ui.flash_scope
+  config.get().ui.flash_scope = "line"
+
+  local buf, req = flash_buffer()
+  ui.flash(req, buf)
+  local rows = flash_rows(buf)
+  config.get().ui.flash_scope = previous
+  ui.clear_flash()
+
+  t.eq(rows, { 1 }, "only the request line")
+end
+
+function M.flash_can_be_turned_off(t)
+  local config = require("curlite.config")
+  local previous = config.get().ui.flash
+  config.get().ui.flash = false
+
+  local buf, req = flash_buffer()
+  ui.flash(req, buf)
+  local rows = flash_rows(buf)
+  config.get().ui.flash = previous
+
+  t.eq(#rows, 0, "nothing is drawn when flash = false")
+end
+
+function M.a_second_flash_replaces_the_first(t)
+  local buf, req = flash_buffer()
+  local other = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(other, 0, -1, false, { "GET https://y.dev" })
+
+  ui.flash(req, buf)
+  ui.flash({ url_line = 1, end_line = 1 }, other)
+
+  t.eq(#flash_rows(buf), 0, "the earlier flash is cleared, not left behind")
+  t.truthy(#flash_rows(other) > 0)
+  ui.clear_flash()
+end
+
+function M.flash_survives_a_request_running_past_the_end_of_the_buffer(t)
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "GET https://x.dev" })
+  -- The buffer was edited down after the request was parsed.
+  ui.flash({ url_line = 1, end_line = 99 }, buf)
+  t.eq(flash_rows(buf), { 0 }, "the range is clamped rather than throwing")
+  ui.clear_flash()
 end
 
 return M

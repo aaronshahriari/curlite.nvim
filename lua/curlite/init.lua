@@ -72,11 +72,18 @@ local function ui_handlers(bufnr, opts)
       if config.get().notify == "all" then
         util.notify(("curlite: %s %s"):format(req.method, req.url), vim.log.levels.INFO)
       end
+      ui.flash(req, bufnr)
       if not opts.quiet then
         ui.show_pending(req)
       end
     end,
     on_done = function(result)
+      -- With `flash_timeout = 0` the flash is held until the response lands,
+      -- which is here. A non-zero timeout has its own timer and this is a
+      -- no-op by the time it fires.
+      if (config.get().ui.flash_timeout or 0) == 0 then
+        ui.clear_flash()
+      end
       ui.set_inline(result, bufnr)
 
       if result.skipped then
@@ -262,6 +269,52 @@ function M.inspect()
   end
 end
 
+--- Hover: the resolved request under the cursor, in an LSP-style popup.
+---
+--- Deliberately not `inspect`: this is the small, cursor-anchored float that
+--- closes when you move, exactly like `vim.lsp.buf.hover()`. It shows the
+--- request and nothing else -- no curl line. Press `K` again to step into it.
+function M.hover()
+  local req = request_at_cursor()
+  if not req then
+    util.err("curlite: no request found in this buffer")
+    return
+  end
+
+  local cmd, err, resolved = exec.prepare(req)
+  local body
+  if err then
+    body = { ("# %s"):format(err) }
+    if resolved then
+      table.insert(body, ("%s %s"):format(resolved.method, resolved.url))
+    end
+  else
+    body = require("curlite.preview").lines(cmd, false)
+  end
+
+  -- With an `http` treesitter parser the markdown fence gets highlighted by
+  -- injection, the way an LSP hover does it. Without one, drop the fence and
+  -- let `syntax/http.vim` colour the buffer instead -- a bare ```http block
+  -- would otherwise render as plain text.
+  local contents, syntax = body, "http"
+  local ok, added = pcall(vim.treesitter.language.add, "http")
+  if ok and added then
+    contents = { "```http" }
+    vim.list_extend(contents, body)
+    table.insert(contents, "```")
+    syntax = "markdown"
+  end
+
+  return vim.lsp.util.open_floating_preview(contents, syntax, {
+    border = config.get().ui.float.border,
+    focus_id = "curlite_hover",
+    wrap = true,
+    max_width = math.max(40, math.min(100, vim.o.columns - 10)),
+    max_height = math.max(5, math.floor(vim.o.lines * 0.5)),
+    close_events = { "CursorMoved", "CursorMovedI", "InsertCharPre", "BufLeave", "WinScrolled" },
+  })
+end
+
 --- Pick the active environment.
 function M.select_env()
   local source = vim.api.nvim_buf_get_name(0)
@@ -356,7 +409,8 @@ function M.goto_request(delta)
   vim.cmd("normal! zz")
 end
 
---- Yank the request under the cursor as a curl command line.
+--- Yank the request under the cursor as a curl command line. A named request
+--- keeps its `###` header as a shell comment so the shared command has context.
 ---@param register string|nil
 function M.copy_curl(register)
   local req = request_at_cursor()
@@ -369,9 +423,12 @@ function M.copy_curl(register)
     util.err(("curlite: %s"):format(err or "could not build the request"))
     return
   end
-  local line = require("curlite.curl").to_shell(cmd)
-  vim.fn.setreg(register or "+", line)
-  vim.fn.setreg('"', line)
+  local text = require("curlite.curl").to_shell(cmd)
+  if req.name and req.name ~= "" then
+    text = ("### %s\n%s"):format(req.name, text)
+  end
+  vim.fn.setreg(register or "+", text)
+  vim.fn.setreg('"', text)
   util.alert("curlite: curl command yanked", vim.log.levels.INFO)
 end
 
@@ -405,6 +462,11 @@ function M.insert_curl(command)
   local row = vim.api.nvim_win_get_cursor(0)[1]
   vim.api.nvim_buf_set_lines(0, row, row, false, lines)
   pcall(vim.api.nvim_win_set_cursor, 0, { row + 1, 0 })
+end
+
+--- Format the current .http request buffer.
+function M.format()
+  require("curlite.request_format").buffer(0)
 end
 
 --- Open a throwaway `.http` buffer.
@@ -555,6 +617,7 @@ function M.attach(bufnr)
     end
 
     map(maps.send, M.run_at_cursor, "send request")
+    map(maps.send_enter, M.run_at_cursor, "send request")
     map(maps.send_all, M.run_all, "send all requests")
     map(maps.replay, M.replay, "replay last request")
     map(maps.toggle, M.toggle, "toggle response window")
@@ -567,8 +630,9 @@ function M.attach(bufnr)
       M.paste_curl()
     end, "paste curl as request")
     map(maps.inspect, M.inspect, "inspect resolved request")
-    map(maps.hover, M.inspect, "preview request")
+    map(maps.hover, M.hover, "hover request preview")
     map(maps.clear, M.clear, "clear")
+    map(maps.format, M.format, "format request file")
     map(maps.next_request, function()
       M.goto_request(1)
     end, "next request")
@@ -588,6 +652,7 @@ local SUBCOMMANDS = {
   rest = M.run_from_cursor,
   replay = M.replay,
   inspect = M.inspect,
+  hover = M.hover,
   env = M.select_env,
   pick = M.pick_request,
   toggle = M.toggle,
@@ -604,6 +669,7 @@ local SUBCOMMANDS = {
   paste = function()
     M.paste_curl()
   end,
+  format = M.format,
   scratch = M.scratchpad,
   log = function()
     vim.cmd("edit " .. vim.fn.fnameescape(util.log_path()))
@@ -669,6 +735,21 @@ local function register_autocmds()
     group = group,
     callback = function(args)
       parser.invalidate(args.buf)
+    end,
+  })
+
+  -- `format.on_save` is read inside the callback rather than guarding the
+  -- autocmd, so toggling it at runtime takes effect without a re-setup.
+  vim.api.nvim_create_autocmd("BufWritePre", {
+    group = group,
+    callback = function(args)
+      if not (config.get().format or {}).on_save then
+        return
+      end
+      if not vim.tbl_contains(config.get().filetypes, vim.bo[args.buf].filetype) then
+        return
+      end
+      require("curlite.request_format").buffer(args.buf)
     end,
   })
 

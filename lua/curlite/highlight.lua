@@ -4,6 +4,7 @@
 --- tokens can replace it. These extmarks sit above both and restore the small
 --- set of structural details that make a request file easy to scan.
 
+local config = require("curlite.config")
 local parser = require("curlite.parser")
 
 local M = {}
@@ -13,23 +14,42 @@ local PRIORITY = 200
 local attached = {}
 local pending = {}
 
+-- One group per method rather than per semantic class: PUT and PATCH are both
+-- "a change", but they are different requests and deserve different colours.
 local METHOD_GROUPS = {
-  GET = "CurliteHttpMethodRead",
-  HEAD = "CurliteHttpMethodRead",
-  OPTIONS = "CurliteHttpMethodRead",
-  POST = "CurliteHttpMethodWrite",
-  PUT = "CurliteHttpMethodChange",
-  PATCH = "CurliteHttpMethodChange",
+  GET = "CurliteHttpMethodGet",
+  HEAD = "CurliteHttpMethodHead",
+  OPTIONS = "CurliteHttpMethodOptions",
+  POST = "CurliteHttpMethodPost",
+  PUT = "CurliteHttpMethodPut",
+  PATCH = "CurliteHttpMethodPatch",
   DELETE = "CurliteHttpMethodDelete",
-  CONNECT = "CurliteHttpMethodChange",
-  TRACE = "CurliteHttpMethodChange",
+  CONNECT = "CurliteHttpMethodConnect",
+  TRACE = "CurliteHttpMethodTrace",
   QUERY = "CurliteHttpMethodQuery",
-  GRAPHQL = "CurliteHttpMethodQuery",
+  GRAPHQL = "CurliteHttpMethodGraphql",
 }
 
+-- The pre-0.3 names, kept so an existing `:highlight` override or colorscheme
+-- integration keeps working. Each is linked to the method it used to cover.
+local LEGACY_METHOD_GROUPS = {
+  CurliteHttpMethodRead = "CurliteHttpMethodGet",
+  CurliteHttpMethodWrite = "CurliteHttpMethodPost",
+  CurliteHttpMethodChange = "CurliteHttpMethodPut",
+}
+
+--- A value in `highlight.methods` is either a literal colour or the name of a
+--- group to link to. `#` is the only thing that separates the two.
+---@param value string
+---@return boolean
+local function is_colour(value)
+  return value:sub(1, 1) == "#"
+end
+
 function M.setup_highlights()
+  local cfg = config.get().highlight or {}
+
   local links = {
-    CurliteHttpRequestLine = "CursorLine",
     CurliteHttpSeparator = "Comment",
     CurliteHttpRequestName = "Title",
     CurliteHttpConfirm = "DiagnosticWarn",
@@ -39,20 +59,64 @@ function M.setup_highlights()
     CurliteHttpVariable = "Identifier",
     CurliteHttpTemplate = "Macro",
     CurliteHttpDynamic = "Function",
-    CurliteHttpMethodRead = "DiagnosticInfo",
-    CurliteHttpMethodWrite = "Function",
-    CurliteHttpMethodChange = "DiagnosticWarn",
-    CurliteHttpMethodDelete = "DiagnosticError",
-    CurliteHttpMethodQuery = "Type",
-    CurliteHttpUrl = "Underlined",
     CurliteHttpVersion = "Constant",
-    CurliteHttpHeaderName = "Type",
+    CurliteHttpHeaderName = "@constant",
     CurliteHttpHeaderSep = "Delimiter",
     CurliteHttpHeaderValue = "String",
     CurliteHttpSensitiveValue = "DiagnosticWarn",
+    CurliteHttpRequestLine = cfg.line_bar_group or "CursorLine",
   }
   for name, target in pairs(links) do
     vim.api.nvim_set_hl(0, name, { link = target, default = true })
+  end
+
+  local variant = vim.o.background == "light" and "light" or "dark"
+  local palette = ((cfg.methods or {})[variant]) or {}
+  local style = cfg.method_style or {}
+
+  for _, group in pairs(METHOD_GROUPS) do
+    -- `method` is the config key: CurliteHttpMethodGet -> GET.
+    local method = group:gsub("^CurliteHttpMethod", ""):upper()
+    local value = palette[method]
+    if value == nil then
+      value = palette.default
+    end
+
+    if value == false then
+      vim.api.nvim_set_hl(0, group, { default = true })
+    elseif type(value) == "string" and is_colour(value) then
+      vim.api.nvim_set_hl(
+        0,
+        group,
+        vim.tbl_extend("force", { fg = value }, style, { default = true })
+      )
+    elseif type(value) == "string" then
+      vim.api.nvim_set_hl(0, group, { link = value, default = true })
+    end
+  end
+
+  for legacy, target in pairs(LEGACY_METHOD_GROUPS) do
+    vim.api.nvim_set_hl(0, legacy, { link = target, default = true })
+  end
+
+  local url = cfg.url or {}
+  local url_colour = url[variant]
+  if url_colour == false then
+    vim.api.nvim_set_hl(0, "CurliteHttpUrl", { default = true })
+  elseif type(url_colour) == "string" and is_colour(url_colour) then
+    vim.api.nvim_set_hl(
+      0,
+      "CurliteHttpUrl",
+      { fg = url_colour, underline = url.underline, default = true }
+    )
+  else
+    -- `Underlined` carries no foreground in most themes, so it is a fallback
+    -- of last resort rather than the default it used to be.
+    vim.api.nvim_set_hl(
+      0,
+      "CurliteHttpUrl",
+      { link = url_colour or "@string.special.url", default = true }
+    )
   end
 end
 
@@ -64,9 +128,18 @@ local function mark(buf, row, start_col, end_col, group, priority)
   })
 end
 
-local function line_mark(buf, row, group)
+--- A full-width background bar behind `row`, drawn only when `highlight.line_bar`
+--- asks for it. `kind` is the bar this line would be: "separator" or "all".
+---@param buf integer
+---@param row integer
+---@param kind "separator"|"all"
+local function line_mark(buf, row, kind)
+  local setting = (config.get().highlight or {}).line_bar or "none"
+  if setting == "none" or (setting == "separator" and kind ~= "separator") then
+    return
+  end
   vim.api.nvim_buf_set_extmark(buf, NS, row, 0, {
-    line_hl_group = group,
+    line_hl_group = "CurliteHttpRequestLine",
     priority = PRIORITY - 1,
   })
 end
@@ -129,7 +202,7 @@ local function mark_headers(buf, lines, req)
       if not name then
         break
       end
-      line_mark(buf, line_nr - 1, "CurliteHttpRequestLine")
+      line_mark(buf, line_nr - 1, "all")
       mark(buf, line_nr - 1, 0, #name, "CurliteHttpHeaderName")
       mark(buf, line_nr - 1, colon - 1, colon, "CurliteHttpHeaderSep")
       local value_start = line:find("%S", colon + 1)
@@ -153,11 +226,17 @@ function M.refresh(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
 
+  -- Cleared above, so turning this off mid-session removes what is drawn
+  -- rather than freezing it in place.
+  if (config.get().highlight or {}).enable == false then
+    return
+  end
+
   for index, line in ipairs(lines) do
     local row = index - 1
     local indent, hashes, title = line:match("^(%s*)(#+)%s*(.*)$")
     if hashes and #hashes >= 3 then
-      line_mark(buf, row, "CurliteHttpRequestLine")
+      line_mark(buf, row, "separator")
       mark(buf, row, #indent, #indent + #hashes, "CurliteHttpSeparator")
       if title ~= "" then
         local title_start = line:find(title, #indent + #hashes + 1, true)

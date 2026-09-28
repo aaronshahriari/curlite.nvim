@@ -9,12 +9,18 @@ local config = require("curlite.config")
 local format = require("curlite.format")
 local response = require("curlite.response")
 local scripts = require("curlite.scripts")
+local size = require("curlite.size")
 local util = require("curlite.util")
 
 local M = {}
 
 local NS = vim.api.nvim_create_namespace("curlite")
 local INLINE_NS = vim.api.nvim_create_namespace("curlite_inline")
+local FLASH_NS = vim.api.nvim_create_namespace("curlite_flash")
+
+-- Above `curlite.highlight`'s marks (200), so the flash is visible over the
+-- method and URL colouring rather than hidden behind it.
+local PRIORITY_FLASH = 300
 
 -- One scratch buffer per pane, created lazily and reused.
 ---@type table<string, integer>
@@ -101,7 +107,7 @@ end
 -- Where a split response window was immediately before it was hidden. Floats
 -- and tabs keep their configured behaviour; ordinary splits are restored next
 -- to the same window, at the same edge and size.
----@type { tab: integer, axis: "row"|"col", after: boolean, anchor: integer, root_edge: boolean, width: integer, height: integer }|nil
+---@type { tab: integer, axis: "row"|"col", after: boolean, anchor: integer, root_edge: boolean, width: number, height: number }|nil
 local saved_split = nil
 
 local PANE_LABELS = {
@@ -132,6 +138,8 @@ function M.setup_highlights()
   -- curlite's own layout rather than a response's meaning. Override any of
   -- them with `:highlight` -- `default = true` means yours wins.
   local fixed = {
+    -- the brief highlight over a request as it is sent
+    CurliteFlash = "Visual",
     -- winbar
     CurlitePaneActive = "TabLineSel",
     CurlitePaneInactive = "TabLine",
@@ -625,8 +633,8 @@ local function capture_split()
     return nil
   end
   placement.tab = tab
-  placement.width = vim.api.nvim_win_get_width(win)
-  placement.height = vim.api.nvim_win_get_height(win)
+  placement.width = size.as_fraction("width", vim.api.nvim_win_get_width(win))
+  placement.height = size.as_fraction("height", vim.api.nvim_win_get_height(win))
   return placement
 end
 
@@ -662,9 +670,9 @@ local function restore_split(buf)
   M.winid = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(M.winid, buf)
   if vertical then
-    pcall(vim.api.nvim_win_set_width, M.winid, placement.width)
+    pcall(vim.api.nvim_win_set_width, M.winid, size.resolve("width", placement.width))
   else
-    pcall(vim.api.nvim_win_set_height, M.winid, placement.height)
+    pcall(vim.api.nvim_win_set_height, M.winid, size.resolve("height", placement.height))
   end
   return true
 end
@@ -702,11 +710,15 @@ local function open_window(buf)
       M.winid = vim.api.nvim_get_current_win()
       vim.api.nvim_win_set_buf(M.winid, buf)
       if cfg.display == "right" or cfg.display == "left" then
-        if cfg.width > 0 then
-          vim.api.nvim_win_set_width(M.winid, cfg.width)
+        local width = size.resolve("width", cfg.width)
+        if width then
+          vim.api.nvim_win_set_width(M.winid, width)
         end
-      elseif cfg.height > 0 then
-        vim.api.nvim_win_set_height(M.winid, cfg.height)
+      else
+        local height = size.resolve("height", cfg.height)
+        if height then
+          vim.api.nvim_win_set_height(M.winid, height)
+        end
       end
     end
   end
@@ -717,7 +729,7 @@ local function open_window(buf)
   wo.relativenumber = false
   wo.signcolumn = "no"
   wo.foldenable = false
-  wo.cursorline = true
+  wo.cursorline = cfg.cursorline == true
   wo.winfixbuf = true
 
   if vim.api.nvim_win_is_valid(prev) and not cfg.focus then
@@ -1048,9 +1060,87 @@ function M.focus()
   end
 end
 
+--- ----------------------------------------------------------------- flash
+
+-- The buffer currently carrying a flash, so it can be cleared without the
+-- caller having to remember where it was drawn.
+local flash_bufnr = nil
+-- Bumped on every flash, so a timer that fires after a *later* flash has
+-- replaced its own cannot clear the newer one.
+local flash_generation = 0
+
+--- Remove the flash highlight, wherever it is.
+function M.clear_flash()
+  if flash_bufnr and vim.api.nvim_buf_is_valid(flash_bufnr) then
+    vim.api.nvim_buf_clear_namespace(flash_bufnr, FLASH_NS, 0, -1)
+  end
+  flash_bufnr = nil
+end
+
+--- Briefly highlight the request that was just sent, so a fired request is
+--- visible at the cursor rather than only in the response window.
+---@param req curlite.Request
+---@param bufnr integer|nil
+function M.flash(req, bufnr)
+  local cfg = config.get().ui
+  if not cfg.flash then
+    return
+  end
+  bufnr = bufnr or 0
+  if bufnr == 0 then
+    bufnr = vim.api.nvim_get_current_buf()
+  end
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  -- The normal flash covers the whole section the user fired, including its
+  -- `###` title and metadata. The optional line scope remains request-line only.
+  local first = cfg.flash_scope == "line"
+      and (req.url_line or req.start_line)
+    or (req.start_line or req.url_line)
+  if not first then
+    return
+  end
+  local last = cfg.flash_scope == "line" and first or (req.end_line or first)
+
+  local count = vim.api.nvim_buf_line_count(bufnr)
+  first = math.max(1, math.min(first, count))
+  last = math.max(first, math.min(last, count))
+
+  M.clear_flash()
+  flash_bufnr = bufnr
+  flash_generation = flash_generation + 1
+  local generation = flash_generation
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, first - 1, last, false)
+  for index, line in ipairs(lines) do
+    pcall(vim.api.nvim_buf_set_extmark, bufnr, FLASH_NS, first + index - 2, 0, {
+      end_col = #line,
+      hl_group = "CurliteFlash",
+      -- Carry the highlight past the end of a short line, so a block of
+      -- uneven lines reads as one region rather than as ragged stripes.
+      hl_eol = true,
+      priority = PRIORITY_FLASH,
+    })
+  end
+
+  -- 0 means "hold until the response lands", which `clear_flash` does from
+  -- `on_done`. Anything else is a plain timeout.
+  local timeout = cfg.flash_timeout or 0
+  if timeout > 0 then
+    vim.defer_fn(function()
+      if flash_generation == generation then
+        M.clear_flash()
+      end
+    end, timeout)
+  end
+end
+
 --- ------------------------------------------------------------- inline status
 
---- Virtual text on the request line: ` 200 OK · 143ms`.
+--- Virtual text on the request line: ` 200 OK`, plus whatever `ui.inline`
+--- turns on.
 ---@param result curlite.Result
 ---@param bufnr integer|nil
 function M.set_inline(result, bufnr)
@@ -1071,23 +1161,42 @@ function M.set_inline(result, bufnr)
     return
   end
 
+  local show = cfg.inline or {}
   local text, hl
   if result.response and result.response.status > 0 then
     local resp = result.response
-    local icon = status_icon(resp.status)
-    text = ("%s%d %s · %s"):format(
-      icon ~= "" and (icon .. " ") or "",
-      resp.status,
-      resp.status_text,
-      util.human_time(resp.duration_ms)
-    )
+    -- Everything here is also in the winbar a split away, so each part is
+    -- opt-in: by default the inline text is the status and nothing else.
+    local parts = {}
+    if show.status ~= false then
+      table.insert(parts, ("%d %s"):format(resp.status, resp.status_text))
+    end
+    if show.time then
+      table.insert(parts, util.human_time(resp.duration_ms))
+    end
+    if show.size then
+      table.insert(parts, util.human_size(#resp.body))
+    end
+
     hl = status_hl(resp.status)
     local passed, failed = scripts.tally(result.script)
-    if passed + failed > 0 then
-      text = text .. (" · %d/%d"):format(passed, passed + failed)
-      if failed > 0 then
-        hl = "CurliteTestFail"
-      end
+    if show.tests and passed + failed > 0 then
+      table.insert(parts, ("%d/%d"):format(passed, passed + failed))
+    end
+    -- A failing assertion recolours the status even when the tally itself is
+    -- hidden: the point of the inline text is to be glanceable.
+    if failed > 0 then
+      hl = "CurliteTestFail"
+    end
+
+    if #parts == 0 then
+      return
+    end
+    text = table.concat(parts, " · ")
+
+    local icon = show.icon ~= false and status_icon(resp.status) or ""
+    if icon ~= "" then
+      text = icon .. " " .. text
     end
   elseif result.skipped then
     text, hl = "skipped", "Comment"
@@ -1128,6 +1237,18 @@ function M.prompt_filter()
     filter_expr = vim.trim(input) ~= "" and input or nil
     M.refresh("body")
   end)
+end
+
+--- Whether `/` should open the jq prompt rather than Vim's normal search.
+--- It is meaningful only over a JSON body (or while correcting an active jq
+--- expression); every other response pane keeps native `/` behavior.
+---@return boolean
+function M.jq_filter_available()
+  if M.pane ~= "body" or not win_valid() then
+    return false
+  end
+  local buf = vim.api.nvim_win_get_buf(M.winid)
+  return vim.bo[buf].filetype == "json" or (filter_expr ~= nil and filter_expr ~= "")
 end
 
 function M.clear_filter()
@@ -1229,6 +1350,18 @@ function M.apply_result_keymaps(buf)
   map(maps.prev_pane, function()
     M.cycle_pane(-1)
   end, "previous pane")
+  for pane, key in pairs({
+    body = maps.show_body,
+    headers = maps.show_headers,
+    all = maps.show_all,
+    stats = maps.show_stats,
+    verbose = maps.show_verbose,
+    script = maps.show_script,
+  }) do
+    map(key, function()
+      M.set_pane(pane)
+    end, "show " .. pane)
+  end
   map(maps.next_history, function()
     M.cycle_history(1)
   end, "newer response")
@@ -1238,7 +1371,21 @@ function M.apply_result_keymaps(buf)
   map(maps.jump_to_request, M.jump_to_request, "jump to request")
   map(maps.yank_body, M.yank_body, "yank body")
   map(maps.save_body, M.save_body, "save body")
-  map(maps.filter, M.prompt_filter, "jq filter")
+  if maps.filter and maps.filter ~= false then
+    vim.keymap.set("n", maps.filter, function()
+      if not M.jq_filter_available() then
+        return maps.filter
+      end
+      vim.schedule(M.prompt_filter)
+      return "<Ignore>"
+    end, {
+      buffer = buf,
+      silent = true,
+      nowait = true,
+      expr = true,
+      desc = "curlite: jq filter or search",
+    })
+  end
   map(maps.refresh, M.resend, "re-send request")
   map("<Esc>", M.clear_filter, "clear filter")
 

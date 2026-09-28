@@ -46,6 +46,8 @@ CONTENTS                                                    *curlite-contents*
        Requests .................................. |curlite-config-request|
        UI ........................................ |curlite-config-ui|
        Responses ................................. |curlite-config-response|
+       Formatting ................................ |curlite-config-format|
+       Highlighting .............................. |curlite-config-highlight|
        Environments .............................. |curlite-config-env|
        Scripts ................................... |curlite-config-scripts|
        Everything else ........................... |curlite-config-misc|
@@ -134,7 +136,8 @@ Put this in `api.http`: >
 <
 Park the cursor anywhere in it and press `<leader>Rs`. The response opens in a
 split on the right, with the status and timing in the winbar, and
-`  200 OK · 143ms` appears at the end of the request line.
+`  200 OK` appears at the end of the request line. Timing, size and test totals
+can be enabled there with `ui.inline`.
 
 `L` and `H` move between panes: the body, the response headers, both together,
 timing and size statistics, curl's verbose trace, and anything your scripts
@@ -703,7 +706,7 @@ Script ~
     `3 passed, 1 failed` tally and the detail of each failure.
 
 Drop any pane you never look at from `ui.panes`; it disappears from the
-winbar and from the `H`/`L` cycle.
+winbar and from the pane cycle.
 
 ------------------------------------------------------------------------------
 WHERE THE WINDOW OPENS                                       *curlite-display*
@@ -720,9 +723,11 @@ WHERE THE WINDOW OPENS                                       *curlite-display*
 `"vertical"` and `"horizontal"` are accepted as aliases for `right` and
 `below`.
 
-For a vertical split, `ui.width` is the width in columns; for a horizontal
-one, `ui.height` is the height in rows. Either `0` leaves the size to Neovim.
-Resizing the window by hand sticks for as long as it is open.
+For a vertical split, `ui.width` controls the width; for a horizontal one,
+`ui.height` controls the height. A value between 0 and 1 is a fraction of the
+editor (`0.5` is 50%), a value of 1 or more is an absolute cell count, and 0
+leaves the size to Neovim. A size changed by hand is restored as a fraction,
+so toggling or resizing the terminal does not distort the layout.
 
 For `display = "float"`, `ui.float.width` and `ui.float.height` are fractions
 of the editor (`0.8` is 80%) and `ui.float.border` is any value that
@@ -739,11 +744,49 @@ The window sets `winfixbuf`, so a stray `:bnext`, a quickfix jump or a plugin
 cannot replace the response with something else. curlite lifts that flag only
 for its own pane switching.
 
-Other display options: `ui.wrap` (off), `ui.number` (off), `ui.winbar` (on —
-set false to lose the pane tabs and the status line), and `ui.inline_status`
-(on — the ` 200 OK · 143ms` virtual text at the end of the request line,
-cleared as soon as you edit the buffer, because a stale one is worse than
-none).
+Other display options: `ui.wrap` (off), `ui.number` (off), `ui.cursorline`
+(off), `ui.winbar` (on — set false to lose the pane tabs and the status line),
+and `ui.inline_status` (on — the ` 200 OK` virtual text at the end of the
+request line, cleared as soon as you edit the buffer, because a stale one is
+worse than none).
+
+                                                           *curlite-inline*
+What that inline text contains is `ui.inline`. Only the status is on by
+default: the winbar one split away already carries the timing, the size and
+the assertion tally, and repeating them at the cursor is noise rather than
+information. >lua
+
+    require("curlite").setup({
+      ui = {
+        inline = {
+          icon = true, status = true,   -- ` 200 OK`
+          time = false,                 -- `· 143ms`
+          size = false,                 -- `· 2.7KB`
+          tests = false,                -- `· 2/2`
+        },
+      },
+    })
+<
+A failing assertion recolours the status whether or not the tally is shown, so
+turning it off never hides a failure. With every part off nothing is drawn at
+all, which is the same as `inline_status = false`.
+
+                                                            *curlite-flash*
+`ui.flash` briefly highlights the request in the buffer as it is sent, so a
+fired request registers at the cursor and not only in the response window. >lua
+
+    require("curlite").setup({
+      ui = {
+        flash = true,
+        flash_timeout = 1500,   -- ms; 0 holds it until the response lands
+        flash_scope = "request",
+      },
+    })
+<
+`flash_scope` is `"request"` — the complete section from its `###` header
+through its final body or script line — or `"line"` for the request line alone.
+
+It is drawn with `CurliteFlash`, linked to `Visual` by default.
 
 ------------------------------------------------------------------------------
 MAPPINGS IN THE WINDOW                                *curlite-result-keymaps*
@@ -752,22 +795,26 @@ All configurable through `result_keymaps`; set one to `false` to drop it, or
 `result_keymaps = false` to bind everything yourself.
 
     q           close the window
-    L           next pane
-    H           previous pane
+    B H A       body / headers / all
+    S T O       stats / trace (verbose) / script output
+    <C-l>       next pane
+    <C-h>       previous pane
     1 .. 6      jump straight to a pane, in `ui.panes` order
     ]           newer response from the history
     [           older response
     gd          jump to the request that produced this response
     Y           yank the body (respects the register you prefix)
     gs          save the body to a file
-    /           filter a JSON body with a jq expression
+    /           jq filter in a JSON Body pane; normal search everywhere else
     <Esc>       clear the filter
     R           re-send the request that produced this response
 
                                                             *curlite-filter*
-The `/` filter runs your expression through `jq` over the raw body and shows
-the result. It is a view, not a change — `[`, `]` and a new request all clear
-it, and `<Esc>` restores the whole body. Anything jq accepts works:
+In a JSON Body pane, `/` runs your expression through `jq` over the raw body
+and shows the result. In every other pane, and for a non-JSON body, `/` remains
+normal Vim search. The jq result is a view, not a change — `[`, `]` and a new
+request all clear it, and `<Esc>` restores the whole body. Anything jq accepts
+works:
 
     .items | length
     .data[] | select(.active)
@@ -794,6 +841,8 @@ to look at.
     replay      re-send whatever ran last
     inspect     show the resolved request and its curl equivalent
                                                              *curlite-inspect*
+    hover       an LSP-style popup with just the resolved request
+                                                               *curlite-hover*
     env         pick the environment
     pick        jump to a request in this file
     toggle      toggle the response window
@@ -804,6 +853,7 @@ to look at.
     cancel      kill every in-flight request
     curl        yank the request under the cursor as a curl command line
     paste       convert a curl command from the clipboard into a request
+    format      format request lines, headers and JSON bodies
     scratch     open a throwaway `.http` buffer
     log         open the debug log
     health      `:checkhealth curlite`
@@ -819,17 +869,20 @@ to look at.
 Set buffer-locally in every `http` buffer:
 
     <leader>Rs      send the request under the cursor
+    <CR>            send the request under the cursor
     <leader>Ra      send every request in the file
     <leader>Rr      replay the last request
-    <leader>h       hide/show the response at its last split position
+    <leader>Ro      hide/show the response at its last split position
     <leader>Re      pick the environment
     <leader>Rf      jump to a request
-    <leader>Ry      yank the request as a curl command line
-    <leader>Rp      convert a curl command in the clipboard
+    <leader>Rc      yank a shareable curl command; named requests keep their
+                    `### NAME` as a shell comment above the command
+    <leader>RC      convert a curl command in the clipboard
     <leader>Ri      inspect the resolved request
-    K               preview the resolved request
-    <leader>Rc      clear
-    ]r  [r          next / previous request
+    K               hover: the resolved request in an LSP-style popup
+    <leader>Rx      clear
+    <leader>Rn/Rp   next / previous request
+    <leader>f       format the request file
 
 Set any to `false` to drop it, or `keymaps = false` to bind everything
 yourself. `on_attach` is the hook for your own buffer-local maps.
@@ -869,8 +922,8 @@ The complete default table: >lua
 
       ui = {
         display = "right",
-        width = 88,
-        height = 20,
+        width = 0.5,
+        height = 0.5,
         float = { width = 0.8, height = 0.8, border = "rounded" },
         default_pane = "body",
         panes = { "body", "headers", "all", "stats", "verbose", "script" },
@@ -878,7 +931,18 @@ The complete default table: >lua
         focus = false,
         wrap = false,
         number = false,
+        cursorline = false,
         inline_status = true,
+        inline = {
+          icon = true,
+          status = true,
+          time = false,
+          size = false,
+          tests = false,
+        },
+        flash = true,
+        flash_timeout = 1500,
+        flash_scope = "request",
         icons = {
           success  = "",
           error    = "",
@@ -931,23 +995,32 @@ The complete default table: >lua
 
       keymaps = {
         send         = "<leader>Rs",
+        send_enter   = "<CR>",
         send_all     = "<leader>Ra",
         replay       = "<leader>Rr",
-        toggle       = "<leader>h",
+        toggle       = "<leader>Ro",
         select_env   = "<leader>Re",
         pick_request = "<leader>Rf",
-        copy_curl    = "<leader>Ry",
-        paste_curl   = "<leader>Rp",
+        copy_curl    = "<leader>Rc",
+        paste_curl   = "<leader>RC",
         inspect      = "<leader>Ri",
-        clear        = "<leader>Rc",
-        next_request = "]r",
-        prev_request = "[r",
+        hover        = "K",
+        clear        = "<leader>Rx",
+        next_request = "<leader>Rn",
+        prev_request = "<leader>Rp",
+        format       = "<leader>f",
       },
 
       result_keymaps = {
         close           = "q",
-        next_pane       = "L",
-        prev_pane       = "H",
+        next_pane       = "<C-l>",
+        prev_pane       = "<C-h>",
+        show_body       = "B",
+        show_headers    = "H",
+        show_all        = "A",
+        show_stats      = "S",
+        show_verbose    = "T",
+        show_script     = "O",
         next_history    = "]",
         prev_history    = "[",
         jump_to_request = "gd",
@@ -1042,7 +1115,8 @@ REQUESTS                                              *curlite-config-request*
 UI                                                         *curlite-config-ui*
 
 `ui.display`, `ui.width`, `ui.height`, `ui.float`, `ui.focus`, `ui.wrap`,
-`ui.number`, `ui.winbar`, `ui.inline_status`, `ui.panes`, `ui.default_pane`
+`ui.number`, `ui.winbar`, `ui.inline_status`, `ui.inline`, `ui.flash`,
+`ui.flash_timeout`, `ui.flash_scope`, `ui.panes`, `ui.default_pane`
 are all covered in |curlite-response-window| and |curlite-display|.
 
 `ui.icons` ~
@@ -1052,6 +1126,12 @@ are all covered in |curlite-response-window| and |curlite-display|.
 
         icons = { success = "✓", error = "✗", running = "…", redirect = "→" }
 <
+`ui.cursorline` ~
+    Highlight the line the cursor is on in the response window. Default
+    `false`. The response is something you read and copy out of, and a bar
+    tracking the cursor across it reads as noise rather than as position.
+    Set it to `true` for the usual 'cursorline' behaviour.
+
 `ui.highlights` ~
     What the six status highlight groups link to. See |curlite-highlights|.
 
@@ -1083,6 +1163,77 @@ RESPONSES                                            *curlite-config-response*
 `response.show_request` ~
     Include the request half of the `all` pane.
 
+------------------------------------------------------------------------------
+FORMATTING                                             *curlite-config-format*
+
+`:Curlite format` rewrites the buffer you are editing. It is pure Lua: there is
+no binary to install and no language server to configure.
+
+It normalises what curlite already understands and leaves everything else
+byte-for-byte:
+
+    - `###` separators collapse to one `###` and a single space
+    - `@name=value` becomes `@name = value`
+    - the method is upper-cased and spacing around the URL is made single
+    - `Header :  value` becomes `Header: value`
+    - a continued query parameter is indented two spaces under its URL
+    - a JSON body is re-indented
+
+Prose comments, non-JSON bodies and script blocks are never touched. The
+formatter is idempotent: running it on an already-formatted document is a
+no-op, so it is safe on `BufWritePre`.
+
+`format.bodies` ~
+    Re-indent JSON request bodies. Default `true`. A `{{template}}` inside a
+    body survives, including where it stands in for a number and the body is
+    therefore not valid JSON on its own. A body that does not parse is left
+    alone, so a half-typed payload is never mangled.
+
+`format.indent` ~
+    Spaces per indent level for a JSON body. Default `2`.
+
+`format.on_save` ~
+    Format automatically just before the buffer is written. Default `false`. >lua
+
+        require("curlite").setup({ format = { on_save = true } })
+<
+------------------------------------------------------------------------------
+HIGHLIGHTING                                        *curlite-config-highlight*
+
+Colouring of the `.http` buffer you edit. The response window is separate; see
+|curlite-highlights|.
+
+`highlight.enable` ~
+    Draw curlite's extmarks at all. Default `true`. Setting it to `false`
+    clears what is drawn and leaves the buffer to Treesitter or the bundled
+    syntax file alone.
+
+`highlight.methods` ~
+    Per-method colours, as `dark` and `light` tables keyed by method name. See
+    |curlite-method-highlights|.
+
+`highlight.method_style` ~
+    Attributes applied to every method group alongside its colour. Default
+    `{ bold = true, italic = false }`.
+
+`highlight.url` ~
+    The request URL: `{ dark = "#...", light = "#...", underline = true }`.
+
+`highlight.line_bar` ~
+    A full-width background bar behind structural lines. Default `"none"`.
+
+        "none"       no bar anywhere
+        "separator"  behind `###` section lines only
+        "all"        behind `###` lines and header lines
+
+    The bar is drawn with `highlight.line_bar_group`, `CursorLine` by default.
+    It is off because a bar on every header line bands the whole file, which
+    reads as a rendering fault rather than as structure: >lua
+
+        require("curlite").setup({
+          highlight = { line_bar = "separator" },
+        })
+<
 ------------------------------------------------------------------------------
 ENVIRONMENTS                                              *curlite-config-env*
 
@@ -1164,6 +1315,7 @@ EVERYTHING ELSE                                          *curlite-config-misc*
     curlite.inspect()
     curlite.select_env()
     curlite.current_env()          --> "prod" | nil
+    curlite.hover()
     curlite.pick_request()
     curlite.goto_request(1)        -- or -1
     curlite.copy_curl()
@@ -1299,8 +1451,26 @@ Winbar ~
     CurlitePaneActive    the pane you are on     -> TabLineSel
     CurlitePaneInactive  the other pane tabs     -> TabLine
 
+The request flash ~
+    CurliteFlash         the request being sent  -> Visual
+                         (see |curlite-flash|)
+
+The confirm dialog ~
+    CurliteConfirmYes    the Yes button, selected   -> DiagnosticOk, inverted
+    CurliteConfirmNo     the No button, selected    -> DiagnosticWarn, inverted
+    CurliteConfirmCursor hides the block cursor while the dialog is open
+
+The two buttons are a diagnostic colour inverted into a solid block: dark text
+on green or amber. The unselected one is `Comment`.
+
+The cursor sits on the selected button so `h`/`l` feel natural, but a block
+cursor there paints part of the button in `Cursor`'s colour -- a near-white
+square in most themes -- on top of the highlight. `CurliteConfirmCursor` is
+`blend = 100`, which makes it invisible without moving it. `guicursor` is
+global, so it is saved and restored around the dialog, including when the
+window is closed without an answer.
+
 HTTP request buffers ~
-    CurliteHttpRequestLine    request/header backdrop -> CursorLine
     CurliteHttpSeparator      the `###` marker         -> Comment
     CurliteHttpRequestName    request title            -> Title
     CurliteHttpConfirm        `[confirm]`               -> DiagnosticWarn
@@ -1309,16 +1479,52 @@ HTTP request buffers ~
     CurliteHttpVariable       document variable names  -> Identifier
     CurliteHttpTemplate       `{{variable}}`            -> Macro
     CurliteHttpDynamic        `$uuid`, `$timestamp`     -> Function
-    CurliteHttpMethodRead     GET / HEAD / OPTIONS     -> DiagnosticInfo
-    CurliteHttpMethodWrite    POST                     -> Function
-    CurliteHttpMethodChange   PUT / PATCH              -> DiagnosticWarn
-    CurliteHttpMethodDelete   DELETE                   -> DiagnosticError
-    CurliteHttpMethodQuery    GRAPHQL / QUERY          -> Type
-    CurliteHttpUrl            request URLs             -> Underlined
     CurliteHttpVersion        HTTP version             -> Constant
-    CurliteHttpHeaderName     request header names     -> Type
+    CurliteHttpHeaderName     request header names     -> @constant
     CurliteHttpHeaderValue    request header values    -> String
     CurliteHttpSensitiveValue auth and cookie values   -> DiagnosticWarn
+    CurliteHttpRequestLine    the optional line bar    -> CursorLine
+                              (see `highlight.line_bar`)
+
+                                                    *curlite-method-highlights*
+Methods get one group each, with a concrete colour rather than a link: >
+
+    CurliteHttpMethodGet      GET        green
+    CurliteHttpMethodPost     POST       blue
+    CurliteHttpMethodPut      PUT        orange
+    CurliteHttpMethodPatch    PATCH      yellow
+    CurliteHttpMethodDelete   DELETE     red
+    CurliteHttpMethodHead     HEAD       teal
+    CurliteHttpMethodOptions  OPTIONS    teal
+    CurliteHttpMethodQuery    QUERY      mauve
+    CurliteHttpMethodGraphql  GRAPHQL    mauve
+    CurliteHttpMethodTrace    TRACE      grey
+    CurliteHttpMethodConnect  CONNECT    grey
+<
+They are defined rather than linked because the obvious groups to link to
+collide: `DiagnosticInfo` and `Function` are two near-identical blues in most
+themes, which left GET and POST looking the same. A method is the most
+important token on a request line, so it is given a fixed hue and is bold.
+
+Change them through `highlight.methods`, which takes a colour, the name of a
+group to link to, or `false` for no colour at all: >
+
+    require("curlite").setup({
+      highlight = {
+        methods = {
+          dark = { GET = "#00ff00", POST = "Special", TRACE = false },
+        },
+        method_style = { bold = true, italic = true },
+      },
+    })
+<
+`CurliteHttpUrl` is set the same way, through `highlight.url`. It is a colour
+rather than a link to `Underlined`, which carries no foreground in most themes
+and rendered URLs as plain text with a line under them.
+
+The pre-0.3 group names still work, linked to the method they used to cover:
+`CurliteHttpMethodRead` -> `CurliteHttpMethodGet`, `CurliteHttpMethodWrite` ->
+`CurliteHttpMethodPost`, `CurliteHttpMethodChange` -> `CurliteHttpMethodPut`.
 
 These marks use a higher priority than Treesitter and LSP semantic tokens, so
 the request structure remains consistent with either highlighter enabled.
@@ -1426,7 +1632,8 @@ the scratchpad — behaves the same way.
 
 A request behaves differently here than in a shell ~
     `<leader>Ri` shows the resolved request and the exact curl command line it
-    becomes. Paste that into a shell and compare. `<leader>Ry` yanks it.
+    becomes. Paste that into a shell and compare. `<leader>Rc` yanks it; for a
+    named request, its `### NAME` is kept as a shell comment above the command.
 
 The Verbose pane ~
     curl's `--verbose` trace, including the TLS handshake and every header

@@ -47,9 +47,25 @@ end
 
 function M.request_line(t)
   local groups = highlighted({ "POST https://x.dev/a HTTP/1.1" })
-  t.truthy(has(groups(1), "httpMethod"))
+  t.truthy(has(groups(1), "httpMethodPost"))
   t.truthy(has(groups(1), "httpURL"))
   t.truthy(has(groups(1), "httpVersion"))
+end
+
+function M.each_method_gets_its_own_group(t)
+  -- Without treesitter this syntax file is the only thing colouring a method,
+  -- and a single shared group made every method render identically.
+  for method, group in pairs({
+    GET = "httpMethodGet",
+    POST = "httpMethodPost",
+    PUT = "httpMethodPut",
+    PATCH = "httpMethodPatch",
+    DELETE = "httpMethodDelete",
+    HEAD = "httpMethodHead",
+  }) do
+    local groups = highlighted({ method .. " https://x.dev" })
+    t.truthy(has(groups(1), group), method .. " uses " .. group)
+  end
 end
 
 function M.headers_and_templates(t)

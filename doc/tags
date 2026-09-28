@@ -10,6 +10,8 @@ curlite-completion	curlite.txt	/*curlite-completion*
 curlite-config-curl	curlite.txt	/*curlite-config-curl*
 curlite-config-env	curlite.txt	/*curlite-config-env*
 curlite-config-filetype	curlite.txt	/*curlite-config-filetype*
+curlite-config-format	curlite.txt	/*curlite-config-format*
+curlite-config-highlight	curlite.txt	/*curlite-config-highlight*
 curlite-config-misc	curlite.txt	/*curlite-config-misc*
 curlite-config-request	curlite.txt	/*curlite-config-request*
 curlite-config-response	curlite.txt	/*curlite-config-response*
@@ -22,6 +24,7 @@ curlite-dynamic	curlite.txt	/*curlite-dynamic*
 curlite-environments	curlite.txt	/*curlite-environments*
 curlite-files	curlite.txt	/*curlite-files*
 curlite-filter	curlite.txt	/*curlite-filter*
+curlite-flash	curlite.txt	/*curlite-flash*
 curlite-format	curlite.txt	/*curlite-format*
 curlite-format-body	curlite.txt	/*curlite-format-body*
 curlite-format-requests	curlite.txt	/*curlite-format-requests*
@@ -32,6 +35,8 @@ curlite-highlights-layout	curlite.txt	/*curlite-highlights-layout*
 curlite-highlights-result	curlite.txt	/*curlite-highlights-result*
 curlite-highlights-status	curlite.txt	/*curlite-highlights-status*
 curlite-history	curlite.txt	/*curlite-history*
+curlite-hover	curlite.txt	/*curlite-hover*
+curlite-inline	curlite.txt	/*curlite-inline*
 curlite-inspect	curlite.txt	/*curlite-inspect*
 curlite-installation	curlite.txt	/*curlite-installation*
 curlite-introduction	curlite.txt	/*curlite-introduction*
@@ -39,6 +44,7 @@ curlite-kulala	curlite.txt	/*curlite-kulala*
 curlite-mappings	curlite.txt	/*curlite-mappings*
 curlite-metadata	curlite.txt	/*curlite-metadata*
 curlite-metadata-list	curlite.txt	/*curlite-metadata-list*
+curlite-method-highlights	curlite.txt	/*curlite-method-highlights*
 curlite-multipart	curlite.txt	/*curlite-multipart*
 curlite-pane-all	curlite.txt	/*curlite-pane-all*
 curlite-pane-body	curlite.txt	/*curlite-pane-body*

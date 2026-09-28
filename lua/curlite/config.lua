@@ -73,17 +73,17 @@ M.defaults = {
     --   "right" | "left" | "below" | "above" | "float" | "tab"
     -- `vertical` and `horizontal` are accepted as aliases for right/below.
     display = "right",
-    -- Size of the split. width applies to left/right, height to above/below.
+    -- Split size as a fraction of the editor, or an absolute cell count.
     -- 0 lets Neovim decide.
-    width = 88,
-    height = 20,
+    width = 0.5,
+    height = 0.5,
     -- Float geometry, used when `display = "float"`. Fractions of the editor.
     float = {
       width = 0.8,
       height = 0.8,
       border = "rounded",
     },
-    -- Which pane the response opens on. Cycle at runtime with `H`/`L`.
+    -- Which pane the response opens on. Select with `B`/`H`/`A`/`S`/`V`/`O`.
     --   "body" | "headers" | "all" | "stats" | "verbose" | "script"
     default_pane = "body",
     -- Panes offered in the winbar, in order. Drop any you never look at.
@@ -97,9 +97,34 @@ M.defaults = {
     wrap = false,
     -- Show line numbers in the response.
     number = false,
-    -- Virtual text on the request line showing status and elapsed time
-    -- (` 200 OK · 143ms`) after it runs. Cleared when the buffer changes.
+    -- Highlight the line the cursor is on in the response window. Off: the
+    -- response is something you read and copy out of, and a bar tracking the
+    -- cursor across it reads as noise rather than as position.
+    cursorline = false,
+    -- Virtual text on the request line after it runs (` 200 OK`). Cleared
+    -- when the buffer changes. Set false to drop it entirely.
     inline_status = true,
+    -- What that virtual text shows. The response window carries all of this
+    -- a split away, so only the status is on by default -- the inline text is
+    -- there to answer "did it work?" at the cursor, not to repeat the winbar.
+    inline = {
+      icon = true,    -- the status icon
+      status = true,  -- `200 OK`
+      time = false,   -- `· 143ms`
+      size = false,   -- `· 2.7KB`
+      tests = false,  -- `· 2/2` assertion tally
+    },
+
+    -- Briefly highlight the whole request section in the buffer as it is sent,
+    -- from its `###` header through its final body/script line.
+    flash = true,
+    -- How long to hold it, in milliseconds. 0 holds it until the response
+    -- lands, however long that takes.
+    flash_timeout = 1500,
+    -- How much to highlight.
+    --   "request" -- the request line, its headers and its body
+    --   "line"    -- the request line alone
+    flash_scope = "request",
     -- Icons used across the UI. Set any to "" to drop it.
     icons = {
       success = "",
@@ -117,6 +142,89 @@ M.defaults = {
       running = "Comment",
       inline = "Comment",
     },
+  },
+
+  -- Formatting the `.http` buffer you edit, via `:Curlite format` or the
+  -- `keymaps.format` binding. curlite formats in pure Lua -- there is no
+  -- binary to install and nothing to configure a language server for.
+  format = {
+    -- Re-indent JSON request bodies. `{{template}}` placeholders survive it.
+    -- Off leaves every body exactly as typed and only the structural lines
+    -- (separators, variables, request lines, headers) are normalised.
+    bodies = true,
+    -- Spaces per indent level when re-indenting a JSON body.
+    indent = 2,
+    -- Format the buffer automatically just before it is written.
+    on_save = false,
+  },
+
+  -- Highlighting of the `.http` buffer you edit, as opposed to the response
+  -- window above.
+  highlight = {
+    -- Extmark highlighting on top of syntax/treesitter. Off means curlite
+    -- colours nothing and whatever else is attached to the buffer is left to
+    -- do the job alone.
+    enable = true,
+
+    -- A full-width background bar behind structural lines. This is the
+    -- `CursorLine`-style banding; `"none"` leaves the buffer flat.
+    --   "none"      -- no bar anywhere (default)
+    --   "separator" -- behind `###` section lines only
+    --   "all"       -- behind `###` lines and header lines
+    line_bar = "none",
+    -- The group the bar is drawn with, when `line_bar` is not "none".
+    line_bar_group = "CursorLine",
+
+    -- Method colours, defined outright rather than linked.
+    --
+    -- Linking these to colorscheme groups is exactly what made GET and POST
+    -- indistinguishable: `DiagnosticInfo` and `Function` are two near-identical
+    -- blues in most themes. A method is the single most important token on a
+    -- request line, so it gets a fixed hue and real weight.
+    --
+    -- A value may be:
+    --   "#rrggbb"     -- a literal colour
+    --   "GroupName"   -- link to that highlight group instead
+    --   false         -- leave the method uncoloured
+    -- Keys are matched upper-case. Unlisted methods fall back to `default`.
+    methods = {
+      dark = {
+        GET = "#a6e3a1",      -- green
+        POST = "#89b4fa",     -- blue
+        PUT = "#fab387",      -- orange
+        PATCH = "#f9e2af",    -- yellow
+        DELETE = "#f38ba8",   -- red
+        HEAD = "#94e2d5",     -- teal
+        OPTIONS = "#94e2d5",  -- teal
+        QUERY = "#cba6f7",    -- mauve
+        GRAPHQL = "#cba6f7",  -- mauve
+        TRACE = "#bac2de",
+        CONNECT = "#bac2de",
+        default = "#cdd6f4",
+      },
+      light = {
+        GET = "#40a02b",
+        POST = "#1e66f5",
+        PUT = "#fe640b",
+        PATCH = "#df8e1d",
+        DELETE = "#d20f39",
+        HEAD = "#179299",
+        OPTIONS = "#179299",
+        QUERY = "#8839ef",
+        GRAPHQL = "#8839ef",
+        TRACE = "#6c6f85",
+        CONNECT = "#6c6f85",
+        default = "#4c4f69",
+      },
+    },
+    -- Attributes applied to every method group alongside its colour. Methods
+    -- read as labels, so they are bold and never italic.
+    method_style = { bold = true, italic = false },
+
+    -- The URL on a request line. `Underlined` -- the old default -- carries no
+    -- foreground at all in most themes, which is why URLs rendered as plain
+    -- white text with an underline under them.
+    url = { dark = "#89dceb", light = "#04a5e5", underline = true },
   },
 
   response = {
@@ -190,31 +298,41 @@ M.defaults = {
   -- `false` to drop it, or set `keymaps = false` to bind everything yourself.
   keymaps = {
     send = "<leader>Rs",          -- send the request under the cursor
+    send_enter = "<CR>",          -- Kulala-compatible send shortcut
     send_all = "<leader>Ra",      -- send every request in the file
     replay = "<leader>Rr",        -- replay the last request
-    toggle = "<leader>h",         -- hide/show the response at its last split position
+    toggle = "<leader>Ro",        -- hide/show the response at its last split position
     select_env = "<leader>Re",    -- pick the environment
     pick_request = "<leader>Rf",  -- jump to a request in this file
-    copy_curl = "<leader>Ry",     -- yank the request as a curl command line
-    paste_curl = "<leader>Rp",    -- convert a curl command in the clipboard
+    copy_curl = "<leader>Rc",     -- yank a shareable curl command
+    paste_curl = "<leader>RC",    -- convert a curl command in the clipboard
     inspect = "<leader>Ri",       -- show the fully-resolved request
-    hover = "K",                  -- show the same request preview as inspect
-    next_request = "]r",
-    prev_request = "[r",
-    clear = "<leader>Rc",         -- clear inline status + close the window
+    hover = "K",                  -- LSP-style hover with the resolved request
+    next_request = "<leader>Rn",
+    prev_request = "<leader>Rp",
+    format = "<leader>f",         -- format this .http buffer
+    clear = "<leader>Rx",         -- clear inline status + close the window
   },
 
   -- Keymaps inside the response window. Same rules as above.
   result_keymaps = {
     close = "q",
-    next_pane = "L",
-    prev_pane = "H",
+    next_pane = "<C-l>",
+    prev_pane = "<C-h>",
+    show_body = "B",
+    show_headers = "H",
+    show_all = "A",
+    show_stats = "S",
+    -- `T` for trace, not `V`: the response window is a buffer you select out
+    -- of, and `V` belongs to linewise Visual mode there.
+    show_verbose = "T",
+    show_script = "O",
     next_history = "]",
     prev_history = "[",
     jump_to_request = "gd",  -- jump back to the request that produced this
     yank_body = "Y",
     save_body = "gs",
-    filter = "/",            -- live jq filter over a JSON body
+    filter = "/",            -- jq in JSON Body; normal search everywhere else
     refresh = "R",           -- re-send the request that produced this
   },
 

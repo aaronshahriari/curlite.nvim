@@ -46,11 +46,11 @@ every dynamic variable.
 | `<leader>Rr` | replay the last one |
 | `<leader>Re` | switch environment |
 | `<leader>Ri` | show the resolved request + its curl equivalent |
-| `<leader>Ry` | yank the request as a curl command |
+| `<leader>Rc` | yank a shareable cURL command (`### NAME` included) |
 | `<leader>Rf` | jump to a request by name |
-| `]r` `[r` | next / previous request |
+| `<leader>Rn` `<leader>Rp` | next / previous request |
 
-In the response window: `H`/`L` or `1`–`6` cycle panes, `[`/`]` walk the
+In the response window: `B`/`H`/`A`/`S`/`V`/`O` select panes, `[`/`]` walk the
 history, `/` filters a JSON body with jq, `gd` jumps back to the request, `Y`
 yanks the body, `gs` saves it, `R` re-sends, `q` closes.
 

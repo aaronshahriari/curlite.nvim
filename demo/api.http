@@ -6,9 +6,9 @@
 #   <leader>Ra   send every request in this file
 #   <leader>Ri   show the resolved request + the curl line it becomes
 #   <leader>Re   switch environment (only PART 2 needs one)
-#   ]r  [r       jump between requests
+#   <leader>Rn/Rp jump between requests
 #
-#   In the response window: H/L or 1-6 cycle panes, [ / ] walk the history,
+#   In the response window: B/H/A/S/V/O select panes, [ / ] walk the history,
 #   / filters JSON with jq, gd jumps back here, Y yanks the body, q closes.
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -17,7 +17,6 @@
 # Absolute URLs, no keys, no environment needed. Every one of these was
 # reachable when this file was written. Start at the top and work down.
 # ─────────────────────────────────────────────────────────────────────────────
-
 
 ### ZEN
 # The simplest thing that can work. Returns one line of text/plain, so the
@@ -53,7 +52,7 @@ Accept: application/vnd.github+json
 # @assert json.name == "neovim"
 
 
-### RICK
+### [confirm] RICK
 # Nested objects and arrays.
 GET https://rickandmortyapi.com/api/character/1
 Accept: application/json
@@ -296,7 +295,10 @@ X-Trace-Id: {{traceId}}
   "name": "aaron",
   "created": "{{$isoTimestamp}}",
   "nonce": {{$randomInt 1000 9999}},
-  "tags": ["neovim", "curl"]
+  "tags": [
+    "neovim",
+    "curl"
+  ]
 }
 
 
@@ -316,7 +318,10 @@ grant_type=client_credentials
 POST {{apiBase}}
 Content-Type: application/json
 
-{ "token": "tok-{{$randomHex 8}}", "expires_in": 3600 }
+{
+  "token": "tok-{{$randomHex 8}}",
+  "expires_in": 3600
+}
 
 > {%
   -- Post-request scripts are Lua. Anything you stash in `client.global`
@@ -351,7 +356,9 @@ Accept: application/json
 POST {{apiBase}}
 Content-Type: application/json
 
-{ "pin": "{{pin}}" }
+{
+  "pin": "{{pin}}"
+}
 
 
 ### TOUR_BASIC_AUTH
@@ -427,19 +434,19 @@ POST {{apiBase}}
 Content-Type: application/json
 
 {
-  "uuid":        "{{$uuid}}",
-  "timestamp":   "{{$timestamp}}",
-  "yesterday":   "{{$timestamp -1 d}}",
-  "iso":         "{{$isoTimestamp}}",
-  "rfc1123":     "{{$datetime rfc1123}}",
-  "date":        "{{$date}}",
+  "uuid": "{{$uuid}}",
+  "timestamp": "{{$timestamp}}",
+  "yesterday": "{{$timestamp -1 d}}",
+  "iso": "{{$isoTimestamp}}",
+  "rfc1123": "{{$datetime rfc1123}}",
+  "date": "{{$date}}",
   "custom_date": "{{$date %d/%m/%Y}}",
-  "randomInt":   {{$randomInt 1 100}},
-  "alnum":       "{{$randomAlphaNumeric 12}}",
-  "hex":         "{{$randomHex 8}}",
-  "email":       "{{$randomEmail}}",
-  "name":        "{{$randomFullName}}",
-  "intellij":    {{$random.integer(1, 10)}},
-  "from_env":    "{{$env.HOME}}",
-  "from_shell":  "{{$exec echo hello-from-a-shell}}"
+  "randomInt": {{$randomInt 1 100}},
+  "alnum": "{{$randomAlphaNumeric 12}}",
+  "hex": "{{$randomHex 8}}",
+  "email": "{{$randomEmail}}",
+  "name": "{{$randomFullName}}",
+  "intellij": {{$random.integer(1, 10)}},
+  "from_env": "{{$env.HOME}}",
+  "from_shell": "{{$exec echo hello-from-a-shell}}"
 }

@@ -29,8 +29,8 @@ curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS C
 
 ## Features
 
-- **Send from the buffer** — the request under the cursor, all of them, or everything from the cursor down. ` 200 OK · 143ms` appears inline at the end of the request line.
-- **Six response panes** — body, headers, both, timing and size, curl's verbose trace, script output. Cycle with `H`/`L`, jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `jq` filters it live with `/`.
+- **Send from the buffer** — the request under the cursor, all of them, or everything from the cursor down. ` 200 OK` appears inline at the end of the request line; timing, size and test totals can be enabled there too.
+- **Six response panes** — body, headers, both, timing and size, curl's verbose trace, script output. Open them with `B`/`H`/`A`/`S`/`T`/`O`, or jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `jq` filters it live with `/`.
 - **Environments** from `http-client.env.json` — a `$shared` block, a gitignored `.private.` overlay, and per-project memory of which one you picked.
 - **Variables everywhere** — document, environment, process env, `.env`, prompts, dynamic (`{{$uuid}}`, `{{$timestamp -1 d}}`, `{{$randomInt 1 100}}`) and shell (`{{$exec pass show api/token}}`). Resolution is recursive, so `@base = {{host}}/v1` works.
 - **Request chaining** — `{{LOGIN.response.body.$.data.token}}` reads an earlier response, and `# @run LOGIN` makes curlite send it for you first.
@@ -88,15 +88,17 @@ There's a full tour in [`demo/api.http`](demo/api.http) — every request in it 
 
 | Key | Action | Key | Action |
 |---|---|---|---|
-| `<leader>Rs` | Send the request under the cursor | `<leader>Ri` / `K` | Show the resolved request + its curl equivalent |
-| `<leader>Ra` | Send every request in the file | `<leader>Ry` | Yank the request as a curl command |
-| `<leader>Rr` | Replay the last one | `<leader>Rp` | Turn a curl command in the clipboard into a request |
-| `<leader>Re` | Pick the environment | `<leader>h` | Hide/show the response |
-| `<leader>Rf` | Jump to a request by name | `]r` / `[r` | Next / previous request |
+| `<leader>Rs` / `<CR>` | Send the request under the cursor | `K` | Hover: the resolved request, LSP-style |
+| `<leader>Ra` | Send every request in the file | `<leader>Ri` | The same, plus the curl equivalent, in a window you can read |
+| `<leader>Rr` | Replay the last one | `<leader>Rc` | Yank a shareable cURL command |
+| `<leader>Re` | Pick the environment | `<leader>RC` | Turn a curl command in the clipboard into a request |
+| `<leader>Rf` | Jump to a request by name | `<leader>Ro` | Hide/show the response |
+| `<leader>f` | Format the request file | `<leader>Rn` / `<leader>Rp` | Next / previous request |
+| `<leader>Rx` | Clear response state | | |
 
-**In the response window:** `H`/`L` cycle panes, `1`–`6` jump to one, `[`/`]` walk the history, `/` filters JSON with jq, `gd` jumps back to the request, `Y` yanks the body, `gs` saves it, `R` re-sends, `q` closes.
+**In the response window:** `B` body, `H` headers, `A` all, `S` stats, `T` trace (verbose), `O` script; `<C-h>`/`<C-l>` cycle, `1`–`6` jump by position, and `[`/`]` walk history. `/` filters in a JSON Body pane and performs normal Vim search everywhere else. `gd` jumps back, `Y` yanks the body, `gs` saves it, `R` re-sends, and `q` closes.
 
-`:Curlite [send|all|rest|replay|inspect|env|pick|toggle|open|close|clear|cancel|curl|paste|scratch|log|health]` covers the same ground, and `:CurliteRun [file]` runs every request in a file and reports the assertion totals.
+`:Curlite [send|all|rest|replay|inspect|hover|env|pick|toggle|open|close|clear|cancel|curl|paste|format|scratch|log|health]` covers the same ground, and `:CurliteRun [file]` runs every request in a file and reports the assertion totals.
 
 ## The `.http` format
 
@@ -299,11 +301,11 @@ Form bodies are written the way people write them — one parameter per line, `&
 
 `ui.display` takes `right` (default), `left`, `below`, `above`, `float` or `tab`. `vertical` and `horizontal` are aliases for `right` and `below`.
 
-`ui.width` sizes a vertical split, `ui.height` a horizontal one; `0` leaves it to Neovim, and a size you set by hand sticks while the window is open. For `float`, `ui.float.width`/`height` are fractions of the editor and `ui.float.border` is anything `nvim_open_win` accepts.
+`ui.width` sizes a vertical split and `ui.height` a horizontal one. Values between 0 and 1 are fractions (`0.5` is 50%); values of 1 or more are cell counts. A size you set by hand is remembered as a fraction. For `float`, `ui.float.width`/`height` are fractions of the editor and `ui.float.border` is anything `nvim_open_win` accepts.
 
 `ui.focus = false` keeps the cursor in the request buffer so you can fire the next request straight away. The window carries `winfixbuf`, so a stray `:bnext` or a plugin can't replace your response with something else.
 
-Drop any pane you never open from `ui.panes` — it leaves the winbar and the `H`/`L` cycle with it.
+Drop any pane you never open from `ui.panes` and it leaves the winbar and pane cycle with it.
 
 </details>
 
@@ -411,8 +413,13 @@ end)
 require("curlite").setup({
   ui = {
     display = "right",      -- right | left | below | above | float | tab
-    width   = 88,           -- columns, for a left/right split
+    width   = 0.5,          -- half the editor; >= 1 is an absolute column count
     focus   = false,        -- keep the cursor in the request buffer
+    cursorline = false,     -- no cursor-line bar in the response window
+  },
+  format = {
+    bodies  = true,         -- re-indent JSON bodies on `:Curlite format`
+    on_save = false,        -- format automatically before `:w`
   },
   curl = {
     timeout    = 30000,     -- ms; `# @timeout` wins
@@ -454,8 +461,8 @@ require("curlite").setup({
 
   ui = {
     display = "right",                     -- right|left|below|above|float|tab
-    width = 88,                            -- columns, for a left/right split
-    height = 20,                           -- rows, for an above/below split
+    width = 0.5,                           -- fraction or columns, left/right
+    height = 0.5,                          -- fraction or rows, above/below
     float = { width = 0.8, height = 0.8, border = "rounded" },
     default_pane = "body",
     panes = { "body", "headers", "all", "stats", "verbose", "script" },
@@ -463,7 +470,15 @@ require("curlite").setup({
     focus = false,                         -- keep the cursor in the request buffer
     wrap = false,
     number = false,
-    inline_status = true,                  -- ` 200 OK · 143ms` on the request line
+    cursorline = false,
+    inline_status = true,                  -- ` 200 OK` on the request line
+    inline = {
+      icon = true, status = true,
+      time = false, size = false, tests = false,
+    },
+    flash = true,                          -- briefly mark the request being sent
+    flash_timeout = 1500,
+    flash_scope = "request",              -- request | line
     icons = {
       success  = "",
       error    = "",
@@ -478,6 +493,34 @@ require("curlite").setup({
       running      = "Comment",
       inline       = "Comment",
     },
+  },
+
+  format = {
+    bodies = true,                         -- re-indent JSON request bodies
+    indent = 2,
+    on_save = false,
+  },
+
+  highlight = {
+    enable = true,
+    line_bar = "none",                    -- none | separator | all
+    line_bar_group = "CursorLine",
+    methods = {
+      dark = {
+        GET = "#a6e3a1", POST = "#89b4fa", PUT = "#fab387",
+        PATCH = "#f9e2af", DELETE = "#f38ba8", HEAD = "#94e2d5",
+        OPTIONS = "#94e2d5", QUERY = "#cba6f7", GRAPHQL = "#cba6f7",
+        TRACE = "#bac2de", CONNECT = "#bac2de", default = "#cdd6f4",
+      },
+      light = {
+        GET = "#40a02b", POST = "#1e66f5", PUT = "#fe640b",
+        PATCH = "#df8e1d", DELETE = "#d20f39", HEAD = "#179299",
+        OPTIONS = "#179299", QUERY = "#8839ef", GRAPHQL = "#8839ef",
+        TRACE = "#6c6f85", CONNECT = "#6c6f85", default = "#4c4f69",
+      },
+    },
+    method_style = { bold = true, italic = false },
+    url = { dark = "#89dceb", light = "#04a5e5", underline = true },
   },
 
   response = {
@@ -513,24 +556,33 @@ require("curlite").setup({
   -- or keymaps = false to bind everything yourself.
   keymaps = {
     send         = "<leader>Rs",
+    send_enter   = "<CR>",
     send_all     = "<leader>Ra",
     replay       = "<leader>Rr",
-    toggle       = "<leader>h",
+    toggle       = "<leader>Ro",
     select_env   = "<leader>Re",
     pick_request = "<leader>Rf",
-    copy_curl    = "<leader>Ry",
-    paste_curl   = "<leader>Rp",
+    copy_curl    = "<leader>Rc",
+    paste_curl   = "<leader>RC",
     inspect      = "<leader>Ri",
-    clear        = "<leader>Rc",
-    next_request = "]r",
-    prev_request = "[r",
+    hover        = "K",
+    clear        = "<leader>Rx",
+    next_request = "<leader>Rn",
+    prev_request = "<leader>Rp",
+    format       = "<leader>f",
   },
 
   -- Inside the response window. Same rules.
   result_keymaps = {
     close           = "q",
-    next_pane       = "L",
-    prev_pane       = "H",
+    next_pane       = "<C-l>",
+    prev_pane       = "<C-h>",
+    show_body       = "B",
+    show_headers    = "H",
+    show_all        = "A",
+    show_stats      = "S",
+    show_verbose    = "T",   -- `V` is left to linewise Visual mode
+    show_script     = "O",
     next_history    = "]",
     prev_history    = "[",
     jump_to_request = "gd",
