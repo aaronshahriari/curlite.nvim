@@ -1299,6 +1299,30 @@ Winbar ~
     CurlitePaneActive    the pane you are on     -> TabLineSel
     CurlitePaneInactive  the other pane tabs     -> TabLine
 
+HTTP request buffers ~
+    CurliteHttpRequestLine    request/header backdrop -> CursorLine
+    CurliteHttpSeparator      the `###` marker         -> Comment
+    CurliteHttpRequestName    request title            -> Title
+    CurliteHttpConfirm        `[confirm]`               -> DiagnosticWarn
+    CurliteHttpComment        `#` and `//` comments     -> Comment
+    CurliteHttpMetadata       `@timeout`, `@assert`     -> PreProc
+    CurliteHttpVariable       document variable names  -> Identifier
+    CurliteHttpTemplate       `{{variable}}`            -> Macro
+    CurliteHttpDynamic        `$uuid`, `$timestamp`     -> Function
+    CurliteHttpMethodRead     GET / HEAD / OPTIONS     -> DiagnosticInfo
+    CurliteHttpMethodWrite    POST                     -> Function
+    CurliteHttpMethodChange   PUT / PATCH              -> DiagnosticWarn
+    CurliteHttpMethodDelete   DELETE                   -> DiagnosticError
+    CurliteHttpMethodQuery    GRAPHQL / QUERY          -> Type
+    CurliteHttpUrl            request URLs             -> Underlined
+    CurliteHttpVersion        HTTP version             -> Constant
+    CurliteHttpHeaderName     request header names     -> Type
+    CurliteHttpHeaderValue    request header values    -> String
+    CurliteHttpSensitiveValue auth and cookie values   -> DiagnosticWarn
+
+These marks use a higher priority than Treesitter and LSP semantic tokens, so
+the request structure remains consistent with either highlighter enabled.
+
 Headers and All panes ~
     CurliteStatusLine    the `HTTP/2` prefix     -> Title
                          (the code itself is a status group, above)

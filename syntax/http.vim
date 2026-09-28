@@ -79,22 +79,22 @@ syn region httpJsonBody
 syn match httpBoundary "^--[A-Za-z0-9._-]\+-\?-\?$"
 
 " --- links ------------------------------------------------------------------
-hi def link httpSeparator    PreProc
-hi def link httpRequestName  Title
-hi def link httpComment      Comment
+hi def link httpSeparator    CurliteHttpSeparator
+hi def link httpRequestName  CurliteHttpRequestName
+hi def link httpComment      CurliteHttpComment
 hi def link httpTodo         Todo
-hi def link httpMetadata     Special
-hi def link httpMetaValue    Comment
-hi def link httpVariableDef  Identifier
-hi def link httpTemplate     Macro
-hi def link httpDynamic      Function
-hi def link httpMethod       Keyword
-hi def link httpURL          Underlined
+hi def link httpMetadata     CurliteHttpMetadata
+hi def link httpMetaValue    CurliteHttpMetaValue
+hi def link httpVariableDef  CurliteHttpVariable
+hi def link httpTemplate     CurliteHttpTemplate
+hi def link httpDynamic      CurliteHttpDynamic
+hi def link httpMethod       CurliteHttpMethodWrite
+hi def link httpURL          CurliteHttpUrl
 hi def link httpURLCont      Underlined
-hi def link httpVersion      Constant
-hi def link httpHeaderName   Identifier
-hi def link httpHeaderSep    Delimiter
-hi def link httpHeaderValue  String
+hi def link httpVersion      CurliteHttpVersion
+hi def link httpHeaderName   CurliteHttpHeaderName
+hi def link httpHeaderSep    CurliteHttpHeaderSep
+hi def link httpHeaderValue  CurliteHttpHeaderValue
 hi def link httpScriptDelim  PreProc
 hi def link httpScriptFile   Include
 hi def link httpRedirect     Statement

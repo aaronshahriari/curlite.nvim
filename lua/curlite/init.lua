@@ -541,6 +541,8 @@ function M.attach(bufnr)
   local cfg = config.get()
   local maps = cfg.keymaps
 
+  require("curlite.highlight").attach(bufnr)
+
   if maps ~= false then
     local function map(lhs, fn, desc)
       if lhs and lhs ~= false then
@@ -674,6 +676,7 @@ local function register_autocmds()
     group = group,
     callback = function()
       ui.setup_highlights()
+      require("curlite.highlight").setup_highlights()
     end,
   })
 end
@@ -684,6 +687,7 @@ function M.setup(opts)
   config.setup(opts)
   register_filetypes()
   ui.setup_highlights()
+  require("curlite.highlight").setup_highlights()
 
   if not did_setup then
     register_commands()
