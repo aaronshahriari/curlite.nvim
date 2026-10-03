@@ -232,7 +232,8 @@ function M.body_pane_holds_only_the_body(t)
   ui.close()
 end
 
-function M.slash_filters_only_a_json_body(t)
+function M.the_filter_key_filters_only_a_json_body(t)
+  local key = require("curlite.config").get().result_keymaps.filter
   ui.show(fake(), { pane = "body", push = true })
   t.truthy(ui.jq_filter_available(), "JSON Body enables jq")
 
@@ -241,10 +242,10 @@ function M.slash_filters_only_a_json_body(t)
   local buf = vim.api.nvim_win_get_buf(ui.winid)
   local mapping
   vim.api.nvim_buf_call(buf, function()
-    mapping = vim.fn.maparg("/", "n", false, true)
+    mapping = vim.fn.maparg(key, "n", false, true)
   end)
   t.eq(mapping.expr, 1)
-  t.eq(mapping.callback(), "/", "the mapping falls through to native /")
+  t.eq(mapping.callback(), key, "the mapping falls through to the key itself")
 
   local text = fake()
   text.response.body = "plain response"
@@ -398,6 +399,68 @@ function M.keymaps_follow_kulala(t)
   t.eq(defaults.keymaps.send_enter, "<CR>")
   t.eq(defaults.result_keymaps.show_body, "B")
   t.eq(defaults.result_keymaps.show_headers, "H")
+end
+
+function M.the_response_window_leaves_slash_to_vim(t)
+  local defaults = require("curlite.config").defaults
+  t.eq(defaults.result_keymaps.filter, "gq", "jq lives on gq, not on /")
+  t.eq(
+    defaults.result_keymaps.toggle,
+    defaults.keymaps.toggle,
+    "the same key hides the response from either side of the split"
+  )
+end
+
+function M.the_body_opens_in_a_scratch_tab(t)
+  local tabs = #vim.api.nvim_list_tabpages()
+  ui.show(fake(), { pane = "body", push = true })
+
+  ui.scratch_body()
+  t.eq(#vim.api.nvim_list_tabpages(), tabs + 1, "the body opens in its own tab")
+
+  local buf = vim.api.nvim_get_current_buf()
+  local lines = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  t.eq(lines, '{\n  "id": 7,\n  "ok": true\n}')
+  t.eq(vim.bo[buf].filetype, "json")
+  t.truthy(vim.bo[buf].modifiable, "`:%!jq` needs to be able to replace the lines")
+  t.eq(vim.bo[buf].buftype, "nofile", "nothing here is written back")
+  t.match(vim.api.nvim_buf_get_name(buf), "^curlite://body/")
+
+  -- The filter a shell would run, to show the buffer takes one.
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "7" })
+  t.eq(vim.api.nvim_buf_get_lines(buf, 0, -1, false)[1], "7")
+
+  local mapping = vim.fn.maparg("q", "n", false, true)
+  t.truthy(mapping and mapping.callback, "`q` throws the tab away")
+  mapping.callback()
+  t.eq(#vim.api.nvim_list_tabpages(), tabs, "and the tab goes with it")
+  t.falsy(vim.api.nvim_buf_is_valid(buf), "the copy is wiped, modified or not")
+  ui.reset()
+end
+
+function M.the_scratch_tab_does_nothing_without_a_body(t)
+  ui.reset()
+  local tabs = #vim.api.nvim_list_tabpages()
+  ui.scratch_body()
+  t.eq(#vim.api.nvim_list_tabpages(), tabs, "an empty history opens no tab")
+end
+
+function M.toggle_closes_the_response_from_inside_it(t)
+  ui.show(fake(), { pane = "body", push = true })
+  local buf = vim.api.nvim_win_get_buf(ui.winid)
+  local key = require("curlite.config").get().result_keymaps.toggle
+  local mapping
+  vim.api.nvim_buf_call(buf, function()
+    mapping = vim.fn.maparg(key, "n", false, true)
+  end)
+  t.truthy(mapping and mapping.callback, "the pane binds the toggle key")
+
+  mapping.callback()
+  t.falsy(ui.winid, "toggling from inside the pane closes it")
+
+  ui.toggle()
+  t.truthy(ui.winid and vim.api.nvim_win_is_valid(ui.winid), "and brings it back")
+  ui.reset()
 end
 
 function M.split_defaults_to_half_the_editor(t)

@@ -564,6 +564,12 @@ function M.toggle()
   ui.toggle()
 end
 
+--- Open the last response body in its own tab, as a scratch buffer to run
+--- `:%!jq ...` and friends over.
+function M.scratch_body()
+  ui.scratch_body()
+end
+
 --- Close the response window, clear inline status and forget session state.
 function M.clear()
   ui.clear_inline(vim.api.nvim_get_current_buf())
@@ -770,6 +776,7 @@ local SUBCOMMANDS = {
   end,
   format = M.format,
   scratch = M.scratchpad,
+  body = M.scratch_body,
   log = function()
     vim.cmd("edit " .. vim.fn.fnameescape(util.log_path()))
   end,

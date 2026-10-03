@@ -30,7 +30,7 @@ curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS C
 ## Features
 
 - **Send from the buffer** — the request under the cursor, all of them, or everything from the cursor down. ` 200 OK` appears inline at the end of the request line; timing, size and test totals can be enabled there too.
-- **Six response panes** — body, headers, both, timing and size, curl's verbose trace, script output. Open them with `B`/`H`/`A`/`S`/`T`/`O`, or jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `jq` filters it live with `/`.
+- **Six response panes** — body, headers, both, timing and size, curl's verbose trace, script output. Open them with `B`/`H`/`A`/`S`/`T`/`O`, or jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `gq` filters it live through `jq`, while `gi` drops a copy in its own tab to filter by hand. `/` stays plain Vim search.
 - **Environments** from `http-client.env.json` — a `$curliteshared` block, a gitignored `.private.` overlay, per-project `$default_headers`, and a picker that shows each environment's variables beside its name. Nothing is selected until you pick: opening a file starts with no environment, and the first send asks which one.
 - **Variables everywhere** — document, environment, process env, `.env`, prompts, dynamic (`{{$uuid}}`, `{{$timestamp -1 d}}`, `{{$randomInt 1 100}}`) and shell (`{{$exec pass show api/token}}`). Resolution is recursive, so `@base = {{host}}/v1` works.
 - **Request chaining** — `{{LOGIN.response.body.$.data.token}}` reads an earlier response, and `# @run LOGIN` makes curlite send it for you first.
@@ -44,7 +44,7 @@ curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS C
 
 - Neovim 0.10+
 - `curl` (7.75+ for the Stats pane; older still works)
-- Optional: [`jq`](https://jqlang.github.io/jq/) (the `/` filter), [blink.cmp](https://github.com/Saghen/blink.cmp) (completion), a treesitter `http` parser (curlite ships a syntax file for when there isn't one), [lualine.nvim](https://github.com/nvim-lualine/lualine.nvim)
+- Optional: [`jq`](https://jqlang.github.io/jq/) (the `gq` filter), [blink.cmp](https://github.com/Saghen/blink.cmp) (completion), a treesitter `http` parser (curlite ships a syntax file for when there isn't one), [lualine.nvim](https://github.com/nvim-lualine/lualine.nvim)
 
 `:checkhealth curlite` reports what's available.
 
@@ -92,13 +92,13 @@ There's a full tour in [`demo/api.http`](demo/api.http) — every request in it 
 | `<leader>Ra` | Send every request in the file | `<leader>Ri` | The same, plus the curl equivalent, in a window you can read |
 | `<leader>Rr` | Replay the last one | `<leader>Rc` | Yank a shareable cURL command |
 | `<leader>Re` | Pick the environment | `<leader>RC` | Turn a curl command in the clipboard into a request |
-| `<leader>Rf` | Jump to a request by name | `<leader>Ro` | Hide/show the response |
+| `<leader>Rf` | Jump to a request by name | `<leader>Ro` | Hide/show the response (also inside it) |
 | `<leader>f` | Format the request file | `<leader>Rn` / `<leader>Rp` | Next / previous request |
 | `<leader>Rx` | Clear response state | | |
 
-**In the response window:** `B` body, `H` headers, `A` all, `S` stats, `T` trace (verbose), `O` script; `<C-h>`/`<C-l>` cycle, `1`–`6` jump by position, and `[`/`]` walk history. `/` filters in a JSON Body pane and performs normal Vim search everywhere else. `gd` jumps back, `Y` yanks the body, `gs` saves it, `R` re-sends, and `q` closes.
+**In the response window:** `B` body, `H` headers, `A` all, `S` stats, `T` trace (verbose), `O` script; `<C-h>`/`<C-l>` cycle, `1`–`6` jump by position, and `[`/`]` walk history. `gq` filters a JSON body through `jq`, leaving `/` to search the response as usual. `gi` opens a copy of the body in its own tab as a plain modifiable buffer — `:%!jq '.items | map(.id)'`, `:g/.../d`, anything — and `q` throws it away. `gd` jumps back, `Y` yanks the body, `gs` saves it, `R` re-sends, `<leader>Ro` hides the window without leaving it, and `q` closes.
 
-`:Curlite [send|all|rest|replay|inspect|hover|env|pick|toggle|open|close|clear|cancel|curl|paste|format|scratch|log|health]` covers the same ground, and `:CurliteRun [file]` runs every request in a file and reports the assertion totals.
+`:Curlite [send|all|rest|replay|inspect|hover|env|pick|toggle|open|close|clear|cancel|curl|paste|format|scratch|body|log|health]` covers the same ground, and `:CurliteRun [file]` runs every request in a file and reports the assertion totals.
 
 ## The `.http` format
 
@@ -461,7 +461,7 @@ The file format is identical, so your `.http` files and `http-client.env.json` w
 | **protocols** | HTTP and GraphQL. No gRPC, WebSocket or streaming. |
 | **OAuth2** | no built-in flow — chain a token request instead. |
 | **OpenAPI explorer** | not included. |
-| **filtering** | a jq expression over the body (`/` in the response window). |
+| **filtering** | a jq expression over the body (`gq` in the response window), or `gi` for the body in a scratch tab to run `:%!jq` over yourself. |
 | **environments** | nothing is selected until you pick. Opening a file starts with none, and the first send opens the picker rather than reusing yesterday's choice. |
 
 Environments, the shared block, dynamic variables, request chaining, prompts, assertions, `>>` redirects, `< file` bodies, multipart and the scratchpad all behave the same way.
@@ -694,8 +694,10 @@ require("curlite").setup({
     jump_to_request = "gd",
     yank_body       = "Y",
     save_body       = "gs",
-    filter          = "/",
+    filter          = "gq",  -- `/` is left to Vim's own search
     refresh         = "R",
+    scratch         = "gi",  -- the body in its own tab, to filter by hand
+    toggle          = "<leader>Ro",
   },
 
   -- Which vim.notify messages get through. Every message curlite shows is

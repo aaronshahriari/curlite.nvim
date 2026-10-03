@@ -89,7 +89,7 @@ already in a Lua editor; the interpreter is free and the sandbox is one table.
 
 Optional:
 
-    jq                  the `/` filter in the response window. Formatting
+    jq                  the `gq` filter in the response window. Formatting
                         does not need it
     blink.cmp           completion inside `.http` files
                         (|curlite-completion|)
@@ -787,8 +787,8 @@ Body ~
     The response body, formatted, and nothing else. No status line, no
     headers, no banner. That matters: because the buffer holds only the body,
     it gets a real `filetype` (json, xml, html, ...) so treesitter highlights
-    it properly, `jq` can filter it, `gq` reflows it, and `Y` yanks exactly
-    what the server sent.
+    it properly, `gq` filters it through `jq`, and `Y` yanks exactly what
+    the server sent.
 
     JSON is pretty-printed in pure Lua, without spawning anything. The
     formatter walks the source text rather than decoding and re-encoding, so
@@ -944,16 +944,20 @@ All configurable through `result_keymaps`; set one to `false` to drop it, or
     gd          jump to the request that produced this response
     Y           yank the body (respects the register you prefix)
     gs          save the body to a file
-    /           jq filter in a JSON Body pane; normal search everywhere else
+    gq          jq filter over a JSON body, in place
     <Esc>       clear the filter
+    gi          open the body in its own tab, as a scratch buffer
     R           re-send the request that produced this response
+    <leader>Ro  hide the window (the same key that opens it from the request)
+
+`/` is left alone: it searches the response like it does in any other buffer.
 
                                                             *curlite-filter*
-In a JSON Body pane, `/` runs your expression through `jq` over the raw body
-and shows the result. In every other pane, and for a non-JSON body, `/` remains
-normal Vim search. The jq result is a view, not a change — `[`, `]` and a new
-request all clear it, and `<Esc>` restores the whole body. Anything jq accepts
-works:
+In a JSON Body pane, `gq` runs your expression through `jq` over the raw body
+and shows the result. In every other pane, and for a non-JSON body, the key
+falls through to whatever it normally does. The jq result is a view, not a
+change — `[`, `]` and a new request all clear it, and `<Esc>` restores the
+whole body. Anything jq accepts works:
 
     .items | length
     .data[] | select(.active)
@@ -961,6 +965,24 @@ works:
     [.items[].id]
 
 It needs `jq` on PATH; without it the key reports that and does nothing.
+
+                                                           *curlite-scratch*
+`gi` takes the other route: it opens a copy of the body in a new tab, as an
+ordinary modifiable buffer with the body's filetype. From there the whole of
+Vim applies, `jq` included and on your terms: >
+
+    :%!jq '.items | map(.id)'
+    :%!jq -r '.data[].email'
+    :'<,'>!jq .
+    :g/"active": false/d
+<
+It is a copy. Nothing is written back to the response, the response window
+stays where it is, and the buffer is `nofile`, so `:w some.json` is how it
+leaves. `q` wipes it, filtered or not -- no prompt about unsaved changes. Press
+`gi` again for a fresh copy.
+
+`:Curlite body` does the same thing from anywhere, including from the request
+buffer with the response window closed.
 
                                                            *curlite-history*
 `[` and `]` walk back through the last `history.size` responses (50 by
@@ -995,6 +1017,8 @@ to look at.
     paste       convert a curl command from the clipboard into a request
     format      format request lines, headers and JSON bodies
     scratch     open a throwaway `.http` buffer
+    body        open the last response body in its own tab, as a scratch
+                buffer to run `:%!jq ...` and friends over |curlite-scratch|
     log         open the debug log
     events      list the notification events and which are getting through
                                                        |curlite-notifications|
@@ -1014,7 +1038,9 @@ Set buffer-locally in every `http` buffer:
     <CR>            send the request under the cursor
     <leader>Ra      send every request in the file
     <leader>Rr      replay the last request
-    <leader>Ro      hide/show the response at its last split position
+    <leader>Ro      hide/show the response at its last split position. It is
+                    bound in the response window too, so the key folds the
+                    window away without leaving it first
     <leader>Re      pick the environment
     <leader>Rf      jump to a request
     <leader>Rc      yank a shareable curl command; named requests keep their
@@ -1184,8 +1210,10 @@ The complete default table: >lua
         jump_to_request = "gd",
         yank_body       = "Y",
         save_body       = "gs",
-        filter          = "/",
+        filter          = "gq",
         refresh         = "R",
+        scratch         = "gi",
+        toggle          = "<leader>Ro",
       },
 
       notify = "errors",
@@ -1321,7 +1349,8 @@ RESPONSES                                            *curlite-config-response*
     Pretty-print bodies. `false` shows every body exactly as it arrived.
 
 `response.indent` ~
-    Spaces per level for the JSON and XML formatters, and for the `/` filter.
+    Spaces per level for the JSON and XML formatters, and for the `gq`
+    filter.
 
 `response.filetypes` ~
     Content-Type substring → buffer filetype for the Body pane.
@@ -2008,7 +2037,7 @@ The file format is the same, so your existing `.http` files and
     OAuth2              no built-in flow; chain a token request instead
                         (|curlite-auth|)
     OpenAPI explorer    not included
-    filtering           a jq expression over the body (`/` in the response
+    filtering           a jq expression over the body (`gq` in the response
                         window), rather than kulala's filter syntax
     environments        nothing is selected until you pick one. Opening a file
                         starts with none, and the first send opens the picker

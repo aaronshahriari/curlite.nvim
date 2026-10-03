@@ -44,12 +44,20 @@ local function check_curl()
 end
 
 local function check_optional()
+  -- Name the key the user actually has bound, not the default.
+  local maps = require("curlite.config").get().result_keymaps
+  local key = (maps ~= false and maps.filter) or "the body filter"
   if vim.fn.executable("jq") == 1 then
     local v = vim.system({ "jq", "--version" }, { text = true }):wait()
-    vim.health.ok(("jq %s — powers the `/` filter in the response window"):format(vim.trim(v.stdout or "")))
+    vim.health.ok(
+      ("jq %s — powers the `%s` filter in the response window"):format(
+        vim.trim(v.stdout or ""),
+        key
+      )
+    )
   else
     vim.health.info(
-      "jq not found — the `/` filter in the response window is unavailable. "
+      ("jq not found — the `%s` filter in the response window is unavailable. "):format(key)
         .. "JSON formatting does not need it."
     )
   end

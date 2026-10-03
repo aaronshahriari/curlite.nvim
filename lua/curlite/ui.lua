@@ -266,10 +266,14 @@ local function render_body(result)
     if filtered then
       return remember(vim.split(filtered, "\n", { plain = true }), "json")
     end
-    return remember(
-      { ("jq: %s"):format(err), "", "Press `/` to change the filter, `<Esc>` to clear it." },
-      nil
-    )
+    local maps = config.get().result_keymaps
+    local key = maps ~= false and maps.filter or nil
+    return remember({
+      ("jq: %s"):format(err),
+      "",
+      key and ("Press `%s` to change the filter, `<Esc>` to clear it."):format(key)
+        or "Press `<Esc>` to clear the filter.",
+    }, nil)
   end
 
   local formatted, ft = format.body(resp.body, ctype)
@@ -781,7 +785,9 @@ local function winbar(result)
   end
 
   if filter_expr and filter_expr ~= "" then
-    table.insert(parts, ("%%#Special# /%s%%*"):format(filter_expr))
+    -- `jq` rather than a `/` sigil: the filter is no longer on `/`, and a jq
+    -- expression starting with `.` reads oddly without the label.
+    table.insert(parts, ("%%#Special# jq %s%%*"):format(filter_expr))
   end
 
   if #M.history > 1 then
@@ -1244,9 +1250,10 @@ function M.prompt_filter()
   end)
 end
 
---- Whether `/` should open the jq prompt rather than Vim's normal search.
---- It is meaningful only over a JSON body (or while correcting an active jq
---- expression); every other response pane keeps native `/` behavior.
+--- Whether the filter key should open the jq prompt. It is meaningful only
+--- over a JSON body (or while correcting an active jq expression); in every
+--- other response pane the key falls through to whatever it normally does,
+--- which matters when it is bound to something live like `/`.
 ---@return boolean
 function M.jq_filter_available()
   if M.pane ~= "body" or not win_valid() then
@@ -1301,6 +1308,59 @@ function M.save_body()
       util.emit("write_error", ("curlite: %s"):format(err), { level = vim.log.levels.ERROR })
     end
   end)
+end
+
+--- Open the current body in its own tab as a scratch buffer, so the whole of
+--- Vim is available over it: `:%!jq .items`, `:g`, `:sort`, a visual filter on
+--- part of it. It is a copy, not the response pane -- it is `modifiable`,
+--- nothing here is written back, and `q` throws the tab away.
+function M.scratch_body()
+  local result = M.history[M.history_index]
+  if not result or not result.response or result.response.body == "" then
+    util.emit("no_response", "curlite: no body to open")
+    return
+  end
+  local resp = result.response
+  local formatted, ft = format.body(resp.body, resp.headers["Content-Type"] or "")
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(formatted, "\n", { plain = true }))
+  local bo = vim.bo[buf]
+  bo.buftype = "nofile"
+  bo.bufhidden = "wipe"
+  bo.swapfile = false
+  bo.filetype = ft or "text"
+  -- Modifiable on purpose: `:%!jq` replaces the lines in place.
+  bo.modifiable = true
+  bo.modified = false
+  -- A name, so `:f` and the statusline say which response this is, and `:w
+  -- somewhere.json` has a sensible default. The scheme keeps it off `:e`'s path.
+  local ext = ({ json = "json", xml = "xml", html = "html" })[ft]
+  local label = tostring(result.raw and result.raw.name or resp.status or "response")
+  pcall(
+    vim.api.nvim_buf_set_name,
+    buf,
+    ("curlite://body/%d-%s%s"):format(
+      M.history_index,
+      label:gsub("[^%w_.-]+", "-"),
+      ext and ("." .. ext) or ""
+    )
+  )
+
+  vim.cmd("tabnew")
+  local win = vim.api.nvim_get_current_win()
+  local empty = vim.api.nvim_win_get_buf(win)
+  vim.api.nvim_win_set_buf(win, buf)
+  -- `tabnew` brings an empty buffer of its own; drop it, or `:bnext` collects
+  -- one per inspection.
+  if vim.api.nvim_buf_get_name(empty) == "" and not vim.bo[empty].modified then
+    pcall(vim.api.nvim_buf_delete, empty, {})
+  end
+  -- `q` to throw it away, `force` because `:%!jq` leaves the buffer modified
+  -- and this copy is never worth an E37.
+  vim.keymap.set("n", "q", function()
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end, { buffer = buf, silent = true, nowait = true, desc = "curlite: close the body scratch tab" })
 end
 
 --- Jump back to the request that produced the shown response.
@@ -1390,10 +1450,12 @@ function M.apply_result_keymaps(buf)
       silent = true,
       nowait = true,
       expr = true,
-      desc = "curlite: jq filter or search",
+      desc = "curlite: jq filter over the body",
     })
   end
   map(maps.refresh, M.resend, "re-send request")
+  map(maps.scratch, M.scratch_body, "open the body in a scratch tab")
+  map(maps.toggle, M.toggle, "toggle response window")
   map("<Esc>", M.clear_filter, "clear filter")
 
   -- Jump straight to a pane by number.

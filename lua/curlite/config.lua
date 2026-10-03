@@ -409,8 +409,18 @@ M.defaults = {
     jump_to_request = "gd",  -- jump back to the request that produced this
     yank_body = "Y",
     save_body = "gs",
-    filter = "/",            -- jq in JSON Body; normal search everywhere else
+    -- A jq expression over a JSON body. `/` is deliberately left alone so it
+    -- keeps searching the response like it does in any other buffer; set this
+    -- to "/" if you would rather have the filter back on it.
+    filter = "gq",
     refresh = "R",           -- re-send the request that produced this
+    -- Open a copy of the body in its own tab, as an ordinary modifiable
+    -- buffer: `:%!jq .items` and every other Vim tool work over it there, and
+    -- `q` throws the tab away.
+    scratch = "gi",
+    -- Hide the response from inside it, so the same key folds the window away
+    -- whichever side of the split the cursor is on. Mirrors `keymaps.toggle`.
+    toggle = "<leader>Ro",
   },
 
   -- Which `vim.notify` messages get through, and where they go.
