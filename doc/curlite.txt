@@ -157,9 +157,10 @@ Then add an environment file next to it, `http-client.env.json`: >
 Drop the `@host` line, press `<leader>Re` to pick an environment, and the same
 request now runs against either one.
 
-Nothing is selected until you pick: opening a `.http` file always starts with
-no environment, and the first send opens the picker instead of going out
-against whichever one you used last. See |curlite-environments|.
+Nothing is selected until you pick: arriving in a project starts with no
+environment, and the first send opens the picker instead of going out against
+whichever one you used last. The choice then holds for as long as you are
+working there. See |curlite-environments|.
 
 ==============================================================================
 5. THE .HTTP FORMAT                                           *curlite-format*
@@ -460,7 +461,7 @@ SELECTING ONE                                         *curlite-env-selecting*
 
 An environment is active because you chose it, and for no other reason.
 curlite never selects the first one it finds, and never carries a choice over
-from another file or another day: opening a `.http` file starts with none.
+from another file or another day: arriving in a project starts with none.
 
 With none selected and environments defined, sending stops and opens the
 picker; the request goes out once you have chosen. Set
@@ -516,8 +517,14 @@ The first entry, `(no environment)`, previews the shared block alone and
 selects nothing. Choosing it counts as having chosen, so sends stop asking.
 
 The choice lives for this Neovim session, keyed on the nearest directory
-holding an env file or a `.git`, and is dropped when a `.http` file in that
-project is opened again.
+holding an env file or a `.git`, and it holds until you leave: it is dropped
+when a `.http` file is opened and nothing else from that project is open any
+more. Everything you do while working in it keeps it — opening a second
+request file beside the first, re-reading a buffer (`:e`, 'autoread', a
+formatter, a branch switch), confirming a guarded request, and the floats
+`:Curlite inspect` and `hover` put up. Re-pick whenever you like with
+`<leader>Re`; `:Curlite env` from the response window asks about the file you
+sent from.
 
 The scripted entry points — |curlite.inline()|, |curlite.inline_sync()| and
 |curlite.run_file()| — are never gated this way: they run what you handed
@@ -1662,7 +1669,9 @@ EVERYTHING ELSE                                          *curlite-config-misc*
     curlite.inspect()
     curlite.select_env()           -- opens the picker
     curlite.select_env({ on_choice = function(name) ... end })
+    curlite.select_env({ source = path })  -- for that file's project
     curlite.current_env()          --> "prod" | nil (nil = none selected)
+    curlite.current_env(path)      -- for a file other than the current one
     curlite.env.select("dev", source)   -- choose without the picker
     curlite.env.names(source)      --> every environment defined
     curlite.env.vars(source, "dev")     -- what "dev" would resolve to
@@ -2039,9 +2048,9 @@ The file format is the same, so your existing `.http` files and
     OpenAPI explorer    not included
     filtering           a jq expression over the body (`gq` in the response
                         window), rather than kulala's filter syntax
-    environments        nothing is selected until you pick one. Opening a file
-                        starts with none, and the first send opens the picker
-                        rather than reusing an earlier choice
+    environments        nothing is selected until you pick one. Arriving in a
+                        project starts with none, and the first send opens the
+                        picker rather than reusing an earlier choice
                         (|curlite-env-selecting|)
 
 Everything else — environments, the shared block, dynamic variables, request

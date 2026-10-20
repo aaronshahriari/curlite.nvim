@@ -31,7 +31,7 @@ curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS C
 
 - **Send from the buffer** — the request under the cursor, all of them, or everything from the cursor down. ` 200 OK` appears inline at the end of the request line; timing, size and test totals can be enabled there too.
 - **Six response panes** — body, headers, both, timing and size, curl's verbose trace, script output. Open them with `B`/`H`/`A`/`S`/`T`/`O`, or jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `gq` filters it live through `jq`, while `gi` drops a copy in its own tab to filter by hand. `/` stays plain Vim search.
-- **Environments** from `http-client.env.json` — a `$curliteshared` block, a gitignored `.private.` overlay, per-project `$default_headers`, and a picker that shows each environment's variables beside its name. Nothing is selected until you pick: opening a file starts with no environment, and the first send asks which one.
+- **Environments** from `http-client.env.json` — a `$curliteshared` block, a gitignored `.private.` overlay, per-project `$default_headers`, and a picker that shows each environment's variables beside its name. Nothing is selected until you pick: arriving in a project starts with no environment, and the first send asks which one.
 - **Variables everywhere** — document, environment, process env, `.env`, prompts, dynamic (`{{$uuid}}`, `{{$timestamp -1 d}}`, `{{$randomInt 1 100}}`) and shell (`{{$exec pass show api/token}}`). Resolution is recursive, so `@base = {{host}}/v1` works.
 - **Request chaining** — `{{LOGIN.response.body.$.data.token}}` reads an earlier response, and `# @run LOGIN` makes curlite send it for you first.
 - **Lua scripts**, not JavaScript — `< {% ... %}` before, `> {% ... %}` after, with `request`, `response` and `client` in scope. You're already in a Lua editor.
@@ -213,7 +213,7 @@ Cycles terminate, and a failed dependency blocks the request that needed it.
 
 `$curliteshared` is merged under every environment. JetBrains' `$shared` is read as well, so a file written for another client works unchanged; where both define a key, `$curliteshared` wins. Nested values are reachable as `{{auth.clientId}}`. `http-client.private.env.json` is merged over the public file and is the one to gitignore. Files nearer the `.http` file win over ones further up. `//` and `/* */` comments are tolerated (and a `//` inside a string, as in `https://`, is left alone).
 
-**Nothing is selected until you say so.** Opening a `.http` file starts with no environment — never the one you picked yesterday, never the first one in the file — and the first send stops and opens the picker instead of going out against a host you did not choose. Pick with `<leader>Re` or `:Curlite env`:
+**Nothing is selected until you say so.** Arriving in a project starts with no environment — never the one you picked yesterday, never the first one in the file — and the first send stops and opens the picker instead of going out against a host you did not choose. What you choose then holds for as long as you are working there: a second request file, a re-read buffer, a confirmed request and the preview floats all keep it. Pick with `<leader>Re` or `:Curlite env`:
 
 ```
 ╭─ Environment ──────────╮ ╭─ dev ──────────────────────────────────╮

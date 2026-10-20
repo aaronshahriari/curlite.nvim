@@ -32,9 +32,10 @@
 --- that sets a header itself always wins. A value of `false` drops an
 --- inherited header rather than sending it.
 ---
---- Nothing is selected until you pick an environment. Opening a `.http` file
---- always starts with no environment, so a request can never go out against
---- whichever one happened to be active last time.
+--- Nothing is selected until you pick an environment. Arriving in a project
+--- starts with no environment, so a request can never go out against
+--- whichever one happened to be active last time; the choice then holds for
+--- as long as you are working there.
 ---
 --- A `.env` file in the same directories is also read and exposed through
 --- `{{$dotenv NAME}}`.
@@ -44,8 +45,9 @@ local config = require("curlite.config")
 local M = {}
 
 -- Selected environment, per project root. Lives for this Neovim session only,
--- and is dropped again when an http buffer is (re-)read: choosing the
--- environment is a deliberate act, every time.
+-- and is dropped again when you arrive in the project with nothing from it
+-- open: choosing the environment is a deliberate act, every time. What counts
+-- as arriving is decided in `curlite.init`, which owns the autocommand.
 ---@type table<string, string>
 M.selected = {}
 
@@ -468,7 +470,7 @@ function M.select(name, source)
 end
 
 --- Forget the environment chosen for `source`'s project, so the next request
---- has to ask again. This is what opening an http file does.
+--- has to ask again. This is what arriving in the project does.
 ---@param source string|nil
 function M.forget(source)
   M.selected[M.root(source)] = nil

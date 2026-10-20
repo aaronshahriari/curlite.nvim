@@ -19,6 +19,75 @@ local did_setup = false
 
 --- ----------------------------------------------------------------- helpers
 
+-- The http file most recently entered. The response window, the confirm
+-- dialog and the picker have no path of their own, so anything asked from
+-- them is answered for this file's project.
+---@type string|nil
+local last_source = nil
+
+-- http file buffers this session has already seen, as a set of buffer
+-- numbers. Used to tell a genuinely fresh open from the many other things
+-- that fire `FileType http`.
+local entered = {}
+
+--- Is this buffer the file on disk, rather than one of curlite's own?
+---
+--- The confirm dialog, the inspect float and the hover preview are scratch
+--- buffers given `filetype=http` for the highlighting, so they raise
+--- `FileType` exactly like opening a request file does. They are not files,
+--- and must never be mistaken for one.
+---@param buf integer
+---@return boolean
+local function is_file_buffer(buf)
+  return vim.api.nvim_buf_is_valid(buf)
+    and vim.bo[buf].buftype == ""
+    and vim.api.nvim_buf_get_name(buf) ~= ""
+end
+
+--- Is another http file from the same project already open?
+---@param buf integer  the buffer to ignore
+---@param root string
+---@return boolean
+local function project_is_open(buf, root)
+  for other in pairs(entered) do
+    if other ~= buf and vim.api.nvim_buf_is_loaded(other) and is_file_buffer(other) then
+      if env.root(vim.api.nvim_buf_get_name(other)) == root then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+--- Remember `buf` as an http file we are working in, if that is what it is.
+---@param buf integer
+local function note_buffer(buf)
+  if is_file_buffer(buf) then
+    entered[buf] = true
+    last_source = vim.api.nvim_buf_get_name(buf)
+  end
+end
+
+--- Should loading `buf` drop the environment chosen for its project?
+---
+--- Entering a project starts with no environment, every time: carrying the
+--- last one over is how a request meant for dev ends up at prod. But only a
+--- genuine arrival counts. Re-reading a buffer you are working in (`:e`,
+--- 'autoread' picking up a change on disk, a formatter, a branch switch) and
+--- opening a second `.http` file beside the first are not arrivals, and
+--- throwing the choice away there is just an unexplained reset mid-task.
+---@param buf integer
+---@return boolean
+local function arriving(buf)
+  if not is_file_buffer(buf) then
+    return false
+  end
+  if entered[buf] then
+    return false
+  end
+  return not project_is_open(buf, env.root(vim.api.nvim_buf_get_name(buf)))
+end
+
 -- Buffers already warned about a given duplicate name, so the warning shows
 -- once rather than on every send.
 ---@type table<string, boolean>
@@ -135,7 +204,13 @@ local function with_env(source, fn)
     return fn()
   end
   util.emit("env_required", "curlite: select an environment first")
+  -- `source` is passed on rather than left to the picker to work out from the
+  -- current buffer: a replay, a `:CurliteRun path` or a send triggered from
+  -- the response window is about *that* file's project, and storing the
+  -- choice against the wrong one looks exactly like the environment unsetting
+  -- itself.
   M.select_env({
+    source = source,
     on_choice = function()
       fn()
     end,
@@ -380,10 +455,13 @@ end
 ---
 --- Opens the two-pane picker: environments on the left, the variables each one
 --- resolves to on the right, so you can see what you are switching to.
----@param opts { on_choice: fun(name: string|nil), quiet: boolean }|nil
+---@param opts { source: string|nil, on_choice: fun(name: string|nil), quiet: boolean }|nil
 function M.select_env(opts)
   opts = opts or {}
-  local source = vim.api.nvim_buf_get_name(0)
+  local source = opts.source
+  if not source or source == "" then
+    source = M.source_hint()
+  end
   local names = env.names(source)
   if #names == 0 then
     util.emit(
@@ -417,10 +495,30 @@ function M.select_env(opts)
   })
 end
 
+--- The `.http` file whose project the current window is about.
+---
+--- The current buffer when it is a request file, and otherwise the http file
+--- most recently worked in -- the response window, the confirm dialog and the
+--- inspect float have no path of their own, and resolving them to the working
+--- directory points the environment at a project that may not be the one on
+--- screen.
+---@return string
+function M.source_hint()
+  local buf = vim.api.nvim_get_current_buf()
+  if is_file_buffer(buf) and vim.tbl_contains(config.get().filetypes, vim.bo[buf].filetype) then
+    return vim.api.nvim_buf_get_name(buf)
+  end
+  if last_source and vim.fn.filereadable(last_source) == 1 then
+    return last_source
+  end
+  return vim.api.nvim_buf_get_name(buf)
+end
+
 --- The active environment's name, for a statusline component.
+---@param source string|nil  the file to report for; the current one by default
 ---@return string|nil
-function M.current_env()
-  return env.current(vim.api.nvim_buf_get_name(0))
+function M.current_env(source)
+  return env.current(source or M.source_hint())
 end
 
 --- Jump to a request in this buffer.
@@ -827,11 +925,25 @@ local function register_autocmds()
     group = group,
     pattern = config.get().filetypes,
     callback = function(args)
-      -- Opening an http file starts with no environment, every time. Carrying
-      -- the last one over is how a request meant for dev ends up at prod, so
-      -- the choice is made again for each file you open.
-      env.forget(vim.api.nvim_buf_get_name(args.buf))
+      if arriving(args.buf) then
+        env.forget(vim.api.nvim_buf_get_name(args.buf))
+      end
+      note_buffer(args.buf)
       M.attach(args.buf)
+    end,
+  })
+
+  -- Which http file you are in is what answers "which environment?" from the
+  -- response window, the picker and the statusline.
+  vim.api.nvim_create_autocmd("BufEnter", {
+    group = group,
+    callback = function(args)
+      if
+        is_file_buffer(args.buf)
+        and vim.tbl_contains(config.get().filetypes, vim.bo[args.buf].filetype)
+      then
+        last_source = vim.api.nvim_buf_get_name(args.buf)
+      end
     end,
   })
 
@@ -849,6 +961,9 @@ local function register_autocmds()
     group = group,
     callback = function(args)
       parser.invalidate(args.buf)
+      -- A buffer number is reused once the buffer is gone, so forgetting it
+      -- here is what keeps "have I seen this one?" honest.
+      entered[args.buf] = nil
     end,
   })
 
@@ -896,6 +1011,11 @@ function M.setup(opts)
       vim.api.nvim_buf_is_loaded(buf)
       and vim.tbl_contains(config.get().filetypes, vim.bo[buf].filetype)
     then
+      -- The `FileType` autocmd above was registered too late to see this
+      -- buffer -- with lazy loading, setup *is* the FileType handler -- so
+      -- record it here, or the next file opened looks like a fresh arrival
+      -- and drops the environment chosen in this one.
+      note_buffer(buf)
       M.attach(buf)
     end
   end
