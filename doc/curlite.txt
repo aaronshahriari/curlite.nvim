@@ -40,9 +40,14 @@ CONTENTS                                                    *curlite-contents*
        The panes ................................. |curlite-panes|
        Where the window opens .................... |curlite-display|
        Mappings in the window .................... |curlite-result-keymaps|
- 12. Commands .................................... |curlite-commands|
- 13. Mappings .................................... |curlite-mappings|
- 14. Configuration ............................... |curlite-configuration|
+ 12. OpenAPI import .............................. |curlite-openapi|
+       The picker ................................ |curlite-openapi-picker|
+       Where the spec comes from ................. |curlite-openapi-spec|
+       What you get .............................. |curlite-openapi-block|
+       The base URL .............................. |curlite-openapi-base|
+ 13. Commands .................................... |curlite-commands|
+ 14. Mappings .................................... |curlite-mappings|
+ 15. Configuration ............................... |curlite-configuration|
        Filetypes ................................. |curlite-config-filetype|
        curl ...................................... |curlite-config-curl|
        Requests .................................. |curlite-config-request|
@@ -51,19 +56,20 @@ CONTENTS                                                    *curlite-contents*
        Formatting ................................ |curlite-config-format|
        Highlighting .............................. |curlite-config-highlight|
        Environments .............................. |curlite-config-env|
+       OpenAPI import ............................ |curlite-config-openapi|
        Scripts ................................... |curlite-config-scripts|
        Notifications ............................. |curlite-notifications|
        Everything else ........................... |curlite-config-misc|
- 15. Lua API ..................................... |curlite-api|
- 16. Completion .................................. |curlite-completion|
- 17. Statusline .................................. |curlite-statusline|
- 18. Highlights .................................. |curlite-highlights|
+ 16. Lua API ..................................... |curlite-api|
+ 17. Completion .................................. |curlite-completion|
+ 18. Statusline .................................. |curlite-statusline|
+ 19. Highlights .................................. |curlite-highlights|
        Status groups ............................. |curlite-highlights-status|
        Layout groups ............................. |curlite-highlights-layout|
        The .http buffer .......................... |curlite-highlights-http|
        The result buffers ........................ |curlite-highlights-result|
- 19. Coming from kulala .......................... |curlite-kulala|
- 20. Troubleshooting ............................. |curlite-troubleshooting|
+ 20. Coming from kulala .......................... |curlite-kulala|
+ 21. Troubleshooting ............................. |curlite-troubleshooting|
 
 ==============================================================================
 1. INTRODUCTION                                         *curlite-introduction*
@@ -115,7 +121,7 @@ With lazy.nvim: >lua
     {
       "aaronshahriari/curlite.nvim",
       ft = { "http" },
-      cmd = { "Curlite", "CurliteRun" },
+      cmd = { "Curlite", "CurliteRun", "CurliteOpenapi" },
       opts = {},
     }
 <
@@ -161,6 +167,11 @@ Nothing is selected until you pick: arriving in a project starts with no
 environment, and the first send opens the picker instead of going out against
 whichever one you used last. The choice then holds for as long as you are
 working there. See |curlite-environments|.
+
+If the API you are working against has an OpenAPI or Swagger description, you
+do not have to type the requests at all: `<leader>RO` lists every operation in
+it and writes the one you pick in at the cursor, against the environment you
+chose. See |curlite-openapi|.
 
 ==============================================================================
 5. THE .HTTP FORMAT                                           *curlite-format*
@@ -998,7 +1009,143 @@ newest. A skipped request never enters the history, because there is nothing
 to look at.
 
 ==============================================================================
-12. COMMANDS                                                *curlite-commands*
+12. OPENAPI IMPORT                                            *curlite-openapi*
+
+A spec already says what every endpoint takes. `<leader>RO` -- or
+`:Curlite openapi` -- reads one, lists every operation in it, and writes the
+one you pick into the file at the cursor: URL, headers and an example body,
+with the spec's own values filled in.
+
+Both OpenAPI 3.x and Swagger 2.0 are read, as JSON or YAML. Nothing extra has
+to be installed for either.
+
+------------------------------------------------------------------------------
+THE PICKER                                            *curlite-openapi-picker*
+
+The environment picker's twin: a fuzzy prompt over the operations on the left,
+and on the right the exact block `<CR>` is about to insert. You choose by
+reading the request rather than by remembering what `POST /v2/pets` wants. >
+
+    ╭─ Petstore 1.0.0 ──────╮ ╭──── Add a pet ─────────────────╮
+    │ pet                   │ │### Add a pet                   │
+    ╰───────────────────────╯ │# @name createPet               │
+    ╭───────────────────────╮ │POST {{host}}/v2/pets           │
+    │ GET    /pets          │ │Content-Type: application/json  │
+    │ POST   /pets          │ │                                │
+    │ DELETE /pets/{petId}  │ │{                               │
+    │                       │ │  "name": "Rex"                 │
+    ╰─ 2/3  <CR> insert ────╯ ╰────────────────────────────────╯
+<
+The query matches the method, path, summary, operationId and tags together, so
+`del pet`, `createPet` and `pets post` all find what you mean. The method is
+coloured the way it is in the buffer, and the summary sits at the end of each
+line.
+
+Keys in the built-in picker:
+
+    <CR>            insert the highlighted operation at the cursor
+    <C-n>  <Down>   next
+    <C-p>  <Up>     previous
+    <Esc>  <C-c>    cancel
+
+                                                   *curlite-openapi-telescope*
+With telescope.nvim installed it is a telescope picker instead -- same list,
+same live preview, your own layout and theme -- and `<Tab>` marks more than one
+operation, so `<CR>` inserts a whole group of endpoints in the spec's order.
+`ui.picker.backend` decides which front end opens, exactly as it does for the
+environment picker, and `:Telescope curlite openapi` is the way in from
+telescope itself.
+
+The request lands below the cursor, kept off the line above it with a blank
+line, and the cursor is left on the request line -- so `<CR>` sends what was
+just inserted.
+
+------------------------------------------------------------------------------
+WHERE THE SPEC COMES FROM                               *curlite-openapi-spec*
+
+    :Curlite openapi                        the project's spec
+    :Curlite openapi ./api/openapi.yaml     that file
+    :Curlite openapi https://api.test/docs  that URL
+    :CurliteOpenapi [path]                  the same, with file completion
+
+With no argument, `openapi.spec` is used when you have set one, and otherwise
+curlite looks for `openapi.json`, `openapi.yaml`, `swagger.json` and the rest
+of `openapi.files` in the `.http` file's own directory and every directory up
+to the project root -- the same root the environment is keyed on. The nearest
+one wins. `:checkhealth curlite` says which spec was found, how many
+operations it holds and what imported requests will start with.
+
+A URL is fetched with curl, asynchronously, so a slow server never blocks the
+editor. A *Swagger UI page* is followed to the spec behind it: the URL named in
+the page's own configuration, or failing that the paths those frameworks
+conventionally serve one at (`openapi.url_paths`). A spec read over http is
+remembered for the session; a file on disk is re-read whenever it changes.
+
+YAML needs no extra tooling -- curlite reads it itself: nested mappings and
+sequences, flow collections, block and folded scalars, anchors, aliases and
+merge keys. That is everything a spec uses in practice. For a file it cannot
+read, `yq -o=json spec.yaml > spec.json` is the way round it.
+
+------------------------------------------------------------------------------
+WHAT YOU GET                                           *curlite-openapi-block*
+>
+    ### Remove a pet              the summary, the operationId, or METHOD /path
+    # @name deletePet             so `# @run` and `{{deletePet.response...}}`
+                                  can reach it
+    # deprecated                  when the spec says so
+    DELETE {{host}}/v2/pets/42    the base (|curlite-openapi-base|) and path
+      ?force=true                 required query parameters, one per line
+    Accept: application/json      from the operation's 2xx content type
+    X-Request-Id: abc-123         required header parameters
+<
+Values come from the spec, in this order: the parameter's own `example`, its
+schema's `default`, the first `enum` member, then a sample for its type (`0`,
+`false`, `1970-01-01` for a `format: date`). A parameter with nothing to go on
+becomes `{{name}}`, so what is left to fill in is obvious -- and completion
+offers it like any other variable.
+
+Path parameters never get a type sample. `/pets/0` looks like a real pet you
+did not mean to touch, so a path parameter the spec says nothing about is
+`/pets/{{petId}}` until you say otherwise.
+
+A body is built from the media type's `example` when it has one and from its
+`schema` otherwise, with the required properties first and the rest in
+alphabetical order. `$ref` is followed, `allOf` is merged, `oneOf`/`anyOf`
+take their first branch, and `openapi.max_depth` stops a schema that contains
+itself. JSON, form-urlencoded and multipart bodies are each written the way
+curlite reads them back, so an imported request parses as a request you can
+send without touching it.
+
+What is deliberately left out: optional query parameters (`openapi.query =
+"all"` includes them), optional headers, and any header the environment
+already sends -- writing `Authorization` again here would override the real
+token with the spec's placeholder.
+
+------------------------------------------------------------------------------
+THE BASE URL                                            *curlite-openapi-base*
+
+An imported request starts with *your* environment's host rather than the
+spec's. When the project defines `host` -- or `baseUrl`, or anything else in
+`openapi.base_vars` -- the block says `{{host}}` and follows whichever
+environment you pick, which is the whole point of picking one. The path the
+spec's server declares is kept under it, so a server of
+`https://api.example.com/v2` becomes `{{host}}/v2`.
+
+It is enough for *any* environment in the file to define the variable; you do
+not have to have picked one yet. Importing first and choosing the environment
+afterwards is the normal way round, and the block comes out the same either
+way.
+
+With no such variable in the project, the spec's own `servers[0].url` is used
+instead, its `{variables}` filled in from their defaults (and Swagger 2.0's
+`schemes`, `host` and `basePath` likewise). A relative server URL is resolved
+against the URL the spec was fetched from.
+
+`openapi.base = "spec"` always uses the spec's server, and a literal string --
+`openapi.base = "{{baseUrl}}"` or `"http://localhost:8080"` -- uses that.
+
+==============================================================================
+13. COMMANDS                                                *curlite-commands*
 
                                                                     *:Curlite*
 :Curlite [subcommand]       With no argument, `send`.
@@ -1022,6 +1169,8 @@ to look at.
     cancel      kill every in-flight request
     curl        yank the request under the cursor as a curl command line
     paste       convert a curl command from the clipboard into a request
+    openapi     insert a request from an OpenAPI spec |curlite-openapi|. Takes
+                a path or a URL; with no argument, the project's own spec
     format      format request lines, headers and JSON bodies
     scratch     open a throwaway `.http` buffer
     body        open the last response body in its own tab, as a scratch
@@ -1036,8 +1185,14 @@ to look at.
                             the assertion totals. With no argument, the same
                             as `:Curlite send`.
 
+                                                             *:CurliteOpenapi*
+:CurliteOpenapi [spec]      The same as `:Curlite openapi`, with file
+                            completion on the argument. `[spec]` is a path or
+                            an `http(s)` URL; with no argument, the project's
+                            own spec. See |curlite-openapi|.
+
 ==============================================================================
-13. MAPPINGS                                                *curlite-mappings*
+14. MAPPINGS                                                *curlite-mappings*
 
 Set buffer-locally in every `http` buffer:
 
@@ -1053,6 +1208,7 @@ Set buffer-locally in every `http` buffer:
     <leader>Rc      yank a shareable curl command; named requests keep their
                     `### NAME` as a shell comment above the command
     <leader>RC      convert a curl command in the clipboard
+    <leader>RO      insert a request from an OpenAPI spec |curlite-openapi|
     <leader>Ri      inspect the resolved request
     K               hover: the resolved request in an LSP-style popup. Press
                     `K` again to move the cursor inside it, then `q` or `<Esc>`
@@ -1065,7 +1221,7 @@ Set any to `false` to drop it, or `keymaps = false` to bind everything
 yourself. `on_attach` is the hook for your own buffer-local maps.
 
 ==============================================================================
-14. CONFIGURATION                                      *curlite-configuration*
+15. CONFIGURATION                                      *curlite-configuration*
 
 `setup()` deep-merges what you pass over the defaults, so name only what you
 want changed. Every field is also documented inline in
@@ -1487,6 +1643,75 @@ ENVIRONMENTS                                              *curlite-config-env*
     `{ "$default_headers", "$defaultHeaders" }`. See |curlite-env-headers|.
 
 ------------------------------------------------------------------------------
+OPENAPI IMPORT                                        *curlite-config-openapi*
+
+Importing requests from a spec: |curlite-openapi|.
+
+`openapi.spec` ~
+    A spec to use outright: a path (absolute, or relative to the `.http`
+    file) or an `http(s)` URL. `nil` -- the default -- searches
+    `openapi.files` instead.
+
+`openapi.files` ~
+    Filenames looked for in the `.http` file's directory and every directory
+    up to the project root, nearest first. The first one found is used.
+
+`openapi.url_paths` ~
+    Paths tried, relative to a URL that turned out to be a Swagger UI page
+    which does not name its spec outright.
+
+`openapi.base` ~
+    What an imported request is prefixed with. `"env"` -- the default -- uses
+    `{{host}}` when the project defines one of `openapi.base_vars`, and the
+    spec's server otherwise; `"spec"` always uses the spec's server; any other
+    string is used literally. See |curlite-openapi-base|.
+
+`openapi.base_vars` ~
+    Variable names looked for in the environment, in order, for `base = "env"`.
+    `{ "host", "baseUrl", "base_url", "baseURL", "url", "server" }`.
+
+`openapi.query` ~
+    Which query parameters are written onto the URL: `"required"` (the
+    default), `"all"` or `"none"`.
+
+`openapi.accept` ~
+    Add `Accept:` from the content type the operation's 2xx response
+    advertises. Default `true`.
+
+`openapi.skip_env_headers` ~
+    Leave out a header the environment already sends, rather than overriding a
+    real value with the spec's placeholder. Default `true`.
+
+`openapi.name_meta` ~
+    Emit `# @name <operationId>` under the title, so |curlite-chaining| can
+    reach the request. Default `true`.
+
+`openapi.comments` ~
+    Write the description and a `# deprecated` marker as comments above the
+    request. Default `true`.
+
+`openapi.name` ~
+    What the `###` title is taken from: `"summary"` (the default, falling back
+    to the operationId and then `METHOD /path`), `"operationId"` or `"path"`.
+
+`openapi.max_depth` ~
+    How deep to follow a schema when building an example body. Default `6`,
+    which is what keeps a recursive schema from filling the buffer.
+
+`openapi.timeout` ~
+    Ceiling on fetching a spec over http, in milliseconds. Default `10000`.
+
+`openapi.picker` ~
+    Picker geometry, merged over `ui.picker` -- the operation list wants more
+    room than the environment list, so `list_width` is `0.45` here. Everything
+    `ui.picker` takes works: `width`, `height`, `border`, `preview`,
+    `backend`.
+
+`openapi.telescope` ~
+    Passed to telescope's picker for this one, merged over
+    `ui.picker.telescope`.
+
+------------------------------------------------------------------------------
 SCRIPTS                                               *curlite-config-scripts*
 
 `scripts.enable` ~
@@ -1537,6 +1762,11 @@ Environments:
     `env_selected`      "environment → staging"
     `env_required`      a send was held back until you pick one
     `env_missing`       no environment file was found
+
+Importing:
+    `openapi_loading`   a spec is being fetched                (off by default)
+    `openapi_inserted`  a request was written into the buffer
+    `openapi_error`     a spec could not be read
 
 The document:
     `no_request`        no request under the cursor, or in the file
@@ -1657,7 +1887,7 @@ EVERYTHING ELSE                                          *curlite-config-misc*
     yourself.
 
 ==============================================================================
-15. LUA API                                                      *curlite-api*
+16. LUA API                                                      *curlite-api*
 
 >lua
     local curlite = require("curlite")
@@ -1681,6 +1911,9 @@ EVERYTHING ELSE                                          *curlite-config-misc*
     curlite.copy_curl()
     curlite.paste_curl()
     curlite.insert_curl(command)
+    curlite.openapi()                   -- the picker, for the project's spec
+    curlite.openapi("./openapi.yaml")   -- or a path, or an http(s) URL
+    curlite.insert_lines(lines)         -- write .http lines in at the cursor
     curlite.scratchpad()
     curlite.toggle()
     curlite.clear()
@@ -1728,7 +1961,7 @@ The modules are reachable as `curlite.parser`, `curlite.exec`, `curlite.env`,
 `curlite.ui` and `curlite.variables` if you want to build on them.
 
 ==============================================================================
-16. COMPLETION                                            *curlite-completion*
+17. COMPLETION                                            *curlite-completion*
 
 Completion needs no plugin. Every `.http` buffer gets an 'omnifunc', so
 |i_CTRL-X_CTRL-O| completes, and after `{{` the menu opens by itself as you
@@ -1809,7 +2042,7 @@ carry `noselect` or `noinsert`; where Neovim allows a buffer-local
 (Neovim 0.10) it leaves yours alone and does nothing unless it already says so.
 
 ==============================================================================
-17. STATUSLINE                                            *curlite-statusline*
+18. STATUSLINE                                            *curlite-statusline*
 
 >lua
     require("lualine").setup({
@@ -1825,7 +2058,7 @@ says the next send will stop and ask. Options: `show_env`, `no_env_text`,
 statusline.
 
 ==============================================================================
-18. HIGHLIGHTS                                            *curlite-highlights*
+19. HIGHLIGHTS                                            *curlite-highlights*
 
 Every group is defined as a link with `default = true`, so it follows your
 colorscheme and anything you set yourself wins. The links are re-applied on
@@ -2031,7 +2264,7 @@ normal `json`, `xml` or `html` highlighting — treesitter if you have the
 parser, vim syntax otherwise.
 
 ==============================================================================
-19. COMING FROM KULALA                                        *curlite-kulala*
+20. COMING FROM KULALA                                        *curlite-kulala*
 
 The file format is the same, so your existing `.http` files and
 `http-client.env.json` work unchanged. What differs:
@@ -2045,7 +2278,9 @@ The file format is the same, so your existing `.http` files and
     protocols           HTTP and GraphQL. No gRPC, WebSocket or streaming.
     OAuth2              no built-in flow; chain a token request instead
                         (|curlite-auth|)
-    OpenAPI explorer    not included
+    OpenAPI import      a picker over the spec that writes the request you
+                        choose into the file (|curlite-openapi|), rather than
+                        a browser for the spec itself
     filtering           a jq expression over the body (`gq` in the response
                         window), rather than kulala's filter syntax
     environments        nothing is selected until you pick one. Arriving in a
@@ -2058,7 +2293,7 @@ chaining, prompts, assertions, the `>>` redirect, `< file` bodies, multipart,
 the scratchpad — behaves the same way.
 
 ==============================================================================
-20. TROUBLESHOOTING                                  *curlite-troubleshooting*
+21. TROUBLESHOOTING                                  *curlite-troubleshooting*
 
 `:checkhealth curlite` first.
 
@@ -2084,6 +2319,17 @@ A form body comes back as a 400 ~
 
 TLS certificate errors ~
     `# @insecure` on the request, or `curl.verify_ssl = false` globally.
+
+`no OpenAPI spec found near ...` ~
+    Nothing in `openapi.files` was found between the `.http` file and the
+    project root. Pass one directly -- `:Curlite openapi ./api/openapi.yaml`
+    or a URL -- or set `openapi.spec`. `:checkhealth curlite` says what it
+    looked at.
+
+An imported request points at the wrong host ~
+    By default the base comes from your environment, not the spec:
+    |curlite-openapi-base|. `openapi.base = "spec"` uses the server the spec
+    declares instead, and a literal string overrides both.
 
 A debug log ~
     `debug = true` writes every command line to

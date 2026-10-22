@@ -323,6 +323,85 @@ M.defaults = {
     headers_key = { "$default_headers", "$defaultHeaders" },
   },
 
+  -- Importing requests from an OpenAPI / Swagger description
+  -- (`:Curlite openapi`, `<leader>RO`). The picker lists every operation in
+  -- the spec, previews the exact block it would write, and `<CR>` drops that
+  -- block in at the cursor.
+  openapi = {
+    -- A spec to use outright: a path (absolute, or relative to the `.http`
+    -- file) or an `http(s)` URL. A Swagger UI page is followed to the spec it
+    -- serves. nil searches `files` instead.
+    spec = nil,
+    -- Spec files looked for, in each directory from the `.http` file's own up
+    -- to the project root (the same root the environment is keyed on), nearest
+    -- first. The first one found is the one used.
+    files = {
+      "openapi.json",
+      "openapi.yaml",
+      "openapi.yml",
+      "swagger.json",
+      "swagger.yaml",
+      "swagger.yml",
+      "api/openapi.json",
+      "api/openapi.yaml",
+      "docs/openapi.json",
+      "docs/openapi.yaml",
+    },
+    -- Paths tried, relative to a URL that turned out to be a Swagger UI page
+    -- that does not name its spec outright.
+    url_paths = {
+      "/openapi.json",
+      "/swagger.json",
+      "/v3/api-docs",
+      "/swagger/v1/swagger.json",
+      "/api-docs",
+      "/openapi.yaml",
+    },
+    -- What inserted requests are prefixed with.
+    --   "env"   -- `{{host}}` when the project's environment defines one of
+    --              `base_vars`, so the request follows whichever environment
+    --              you pick; the spec's server supplies the path under it
+    --              (`{{host}}/v2`). Falls back to the spec's server.
+    --   "spec"  -- always the server the spec declares.
+    --   string  -- that literal prefix, e.g. "{{baseUrl}}" or
+    --              "http://localhost:8080".
+    base = "env",
+    -- Variable names looked for in the environment, in order, for `base`.
+    base_vars = { "host", "baseUrl", "base_url", "baseURL", "url", "server" },
+    -- Which query parameters to write onto the URL.
+    --   "required" -- only the ones the spec marks required
+    --   "all"      -- every one it documents
+    --   "none"     -- none; add them yourself
+    query = "required",
+    -- Add `Accept:` from the content type the operation's 2xx response
+    -- advertises.
+    accept = true,
+    -- Leave out a header the environment already sends (`$default_headers`).
+    -- Writing it again here would override the real value with the spec's
+    -- placeholder.
+    skip_env_headers = true,
+    -- Emit `# @name <operationId>` under the title, so `# @run` and
+    -- `{{operationId.response.body.$.x}}` can reach the request.
+    name_meta = true,
+    -- Write the summary/description and a `# deprecated` marker as comments.
+    comments = true,
+    -- What the `###` title is taken from: "summary" (falling back to the
+    -- operationId, then `METHOD /path`), "operationId", or "path".
+    name = "summary",
+    -- How deep to follow a schema when building an example body. Keeps a
+    -- recursive or enormous schema from filling the buffer.
+    max_depth = 6,
+    -- Ceiling on fetching a spec over http, in milliseconds.
+    timeout = 10000,
+    -- Picker geometry, merged over `ui.picker`: the operation list wants more
+    -- room than the environment list does. `telescope` is merged over
+    -- `ui.picker.telescope`.
+    picker = {
+      list_width = 0.45,
+    },
+    telescope = {},
+  },
+
   -- Completion inside `.http` buffers: `{{` offers the variables that would
   -- actually resolve there (document, shared, the selected environment,
   -- script globals, prompts, chainable requests and the `$` functions), and
@@ -383,6 +462,7 @@ M.defaults = {
     pick_request = "<leader>Rf",  -- jump to a request in this file
     copy_curl = "<leader>Rc",     -- yank a shareable curl command
     paste_curl = "<leader>RC",    -- convert a curl command in the clipboard
+    openapi = "<leader>RO",       -- insert a request from an OpenAPI spec
     inspect = "<leader>Ri",       -- show the fully-resolved request
     hover = "K",                  -- LSP-style hover with the resolved request
     next_request = "<leader>Rn",

@@ -6,6 +6,7 @@
 #   <leader>Ra   send every request in this file
 #   <leader>Ri   show the resolved request + the curl line it becomes
 #   <leader>Re   switch environment (only PART 2 needs one)
+#   <leader>RO   insert a request from openapi.yaml, next to this file
 #   <leader>Rn/Rp jump between requests
 #
 #   In the response window: B/H/A/S/V/O select panes, [ / ] walk the history,

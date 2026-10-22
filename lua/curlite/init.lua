@@ -637,6 +637,128 @@ function M.insert_curl(command)
   pcall(vim.api.nvim_win_set_cursor, 0, { row + 1, 0 })
 end
 
+--- Write `.http` lines into a buffer at the cursor, and leave the cursor on
+--- the request itself so it can be sent straight away.
+---
+--- A block is kept off the back of whatever the cursor was sitting on with a
+--- blank line, and an empty buffer is filled rather than pushed down.
+---@param lines string[]
+---@param bufnr integer|nil
+---@param win integer|nil
+---@return integer|nil row  the line the request line landed on
+function M.insert_lines(lines, bufnr, win)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) or not vim.bo[bufnr].modifiable then
+    util.emit("error", "curlite: that buffer cannot be written to")
+    return nil
+  end
+  if not (win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr) then
+    win = nil
+    for _, candidate in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_buf(candidate) == bufnr then
+        win = candidate
+        break
+      end
+    end
+  end
+
+  local body = vim.deepcopy(lines)
+  local count = vim.api.nvim_buf_line_count(bufnr)
+  local first = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] or ""
+  local at
+
+  if count == 1 and vim.trim(first) == "" then
+    at = 0
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, body)
+  else
+    local row = win and vim.api.nvim_win_get_cursor(win)[1] or count
+    local current = vim.api.nvim_buf_get_lines(bufnr, row - 1, row, false)[1] or ""
+    if vim.trim(current) ~= "" then
+      table.insert(body, 1, "")
+    end
+    at = row
+    vim.api.nvim_buf_set_lines(bufnr, row, row, false, body)
+  end
+
+  local row = at + require("curlite.openapi").request_line(body)
+  if win then
+    local last = vim.api.nvim_buf_line_count(bufnr)
+    pcall(vim.api.nvim_win_set_cursor, win, { math.min(row, last), 0 })
+  end
+  return row
+end
+
+--- Import requests from an OpenAPI / Swagger description.
+---
+--- `target` is a path, an `http(s)` URL (a Swagger UI page is followed to the
+--- spec it serves), or nil to use `openapi.spec`, or failing that the nearest
+--- `openapi.json`/`openapi.yaml` above the file being edited. The picker then
+--- lists every operation with a preview of the block it writes, and `<CR>`
+--- drops that block in at the cursor.
+---@param target string|nil
+---@param opts { telescope: table|nil, on_insert: fun(ops: table[])|nil }|nil
+function M.openapi(target, opts)
+  opts = opts or {}
+  local bufnr = vim.api.nvim_get_current_buf()
+  local win = vim.api.nvim_get_current_win()
+  if not vim.bo[bufnr].modifiable then
+    util.emit(
+      "openapi_error",
+      "curlite: this buffer cannot be written to — open the .http file you want the request in"
+    )
+    return
+  end
+
+  local name = vim.api.nvim_buf_get_name(bufnr)
+  local source = name ~= "" and name or M.source_hint()
+  local openapi = require("curlite.openapi")
+
+  openapi.load(target, source, function(spec, err)
+    if not spec then
+      util.emit("openapi_error", ("curlite: %s"):format(err))
+      return
+    end
+
+    local ops = openapi.operations(spec, { source = source })
+    if #ops == 0 then
+      util.emit(
+        "openapi_error",
+        ("curlite: %s describes no operations"):format(spec.__source or "that spec")
+      )
+      return
+    end
+
+    -- Headers the environment already sends are left out of the generated
+    -- block, so an imported request does not override a real `Authorization`
+    -- with the spec's placeholder.
+    local env_headers = env.active_headers(source)
+
+    require("curlite.openapi_picker").open({
+      spec = spec,
+      operations = ops,
+      source = source,
+      env_headers = env_headers,
+      telescope = opts.telescope,
+      on_choice = function(chosen)
+        local lines = {}
+        for _, op in ipairs(chosen) do
+          vim.list_extend(lines, openapi.block(op, { env_headers = env_headers }))
+        end
+        if M.insert_lines(lines, bufnr, win) then
+          util.emit(
+            "openapi_inserted",
+            ("curlite: inserted %d request%s"):format(#chosen, #chosen == 1 and "" or "s"),
+            { data = { operations = chosen } }
+          )
+        end
+        if opts.on_insert then
+          opts.on_insert(chosen)
+        end
+      end,
+    })
+  end)
+end
+
 --- Format the current .http request buffer.
 function M.format()
   require("curlite.request_format").buffer(0)
@@ -812,6 +934,9 @@ function M.attach(bufnr)
     map(maps.paste_curl, function()
       M.paste_curl()
     end, "paste curl as request")
+    map(maps.openapi, function()
+      M.openapi()
+    end, "insert a request from an OpenAPI spec")
     map(maps.inspect, M.inspect, "inspect resolved request")
     map(maps.hover, M.hover, "hover request preview")
     map(maps.clear, M.clear, "clear")
@@ -850,13 +975,21 @@ function M.events()
 end
 
 local SUBCOMMANDS = {
-  send = M.run_at_cursor,
-  all = M.run_all,
+  -- The four that take an options *table* are wrapped, so the argument the
+  -- command line hands a subcommand cannot arrive where a table is expected.
+  send = function()
+    M.run_at_cursor()
+  end,
+  all = function()
+    M.run_all()
+  end,
   rest = M.run_from_cursor,
   replay = M.replay,
   inspect = M.inspect,
   hover = M.hover,
-  env = M.select_env,
+  env = function()
+    M.select_env()
+  end,
   pick = M.pick_request,
   toggle = M.toggle,
   open = function()
@@ -873,6 +1006,9 @@ local SUBCOMMANDS = {
     M.paste_curl()
   end,
   format = M.format,
+  openapi = function(args)
+    M.openapi(args)
+  end,
   scratch = M.scratchpad,
   body = M.scratch_body,
   log = function()
@@ -898,11 +1034,25 @@ local function register_commands()
       )
       return
     end
-    fn()
+    -- Anything after the subcommand is the subcommand's argument, which is
+    -- how `:Curlite openapi ./api/openapi.yaml` reaches it. The ones that
+    -- take no argument are wrapped in `SUBCOMMANDS` so this cannot reach a
+    -- function expecting an options table.
+    local rest = table.concat(vim.list_slice(opts.fargs, 2), " ")
+    fn(rest ~= "" and rest or nil)
   end, {
-    nargs = "?",
+    nargs = "*",
     desc = "curlite",
-    complete = function(lead)
+    complete = function(lead, line)
+      -- Past the subcommand, complete what that subcommand takes: a spec for
+      -- `openapi`, nothing for the rest.
+      local sub = line:match("^%s*%u%a*%s+(%S+)%s")
+      if sub then
+        if sub == "openapi" then
+          return vim.fn.getcompletion(lead, "file")
+        end
+        return {}
+      end
       return vim.tbl_filter(function(name)
         return name:find(lead, 1, true) == 1
       end, names)
@@ -916,6 +1066,14 @@ local function register_commands()
       M.run_at_cursor()
     end
   end, { nargs = "?", complete = "file", desc = "curlite: run a request or a whole file" })
+
+  vim.api.nvim_create_user_command("CurliteOpenapi", function(opts)
+    M.openapi(opts.args ~= "" and opts.args or nil)
+  end, {
+    nargs = "?",
+    complete = "file",
+    desc = "curlite: insert a request from an OpenAPI spec",
+  })
 end
 
 local function register_autocmds()

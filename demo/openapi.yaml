@@ -1,0 +1,162 @@
+# A small spec over httpbin.org, so `<leader>RO` has something real to read.
+#
+#   nvim demo/api.http      then <leader>Re → dev, then <leader>RO
+#
+# The requests it writes go out against `{{host}}` -- the environment you
+# picked in http-client.env.json -- and actually work. It is also a tour of
+# what the importer does with a spec: defaults, enums, formats, required
+# parameters, a `$ref` body, and an operation marked deprecated.
+openapi: 3.0.3
+info:
+  title: httpbin (demo)
+  version: "1.0"
+  description: A handful of httpbin endpoints, described the way a real API
+    would describe them.
+servers:
+  - url: https://httpbin.org
+tags:
+  - name: inspect
+  - name: write
+paths:
+  /get:
+    get:
+      operationId: inspectQuery
+      summary: Echo the query string back
+      tags: [inspect]
+      parameters:
+        - name: page
+          in: query
+          required: true
+          description: Which page to pretend to fetch.
+          schema:
+            type: integer
+            default: 1
+        - name: sort
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: fields
+          in: query
+          description: Left out of the block, because it is optional.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the request, as httpbin saw it
+          content:
+            application/json: {}
+  /post:
+    post:
+      operationId: createThing
+      summary: Post a JSON body
+      tags: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Thing"
+      responses:
+        "200":
+          description: the body, echoed
+          content:
+            application/json: {}
+  /anything/{thing}:
+    parameters:
+      - name: thing
+        in: path
+        required: true
+        description: No example in the spec, so the block leaves a variable.
+        schema:
+          type: string
+    put:
+      operationId: replaceThing
+      summary: Replace a thing
+      tags: [write]
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: demo
+                count:
+                  type: integer
+                  default: 3
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json: {}
+  /status/{code}:
+    get:
+      operationId: returnStatus
+      summary: Return a given status code
+      description: Useful for watching the winbar go red.
+      tags: [inspect]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 418
+      responses:
+        "418":
+          description: teapot
+  /headers:
+    get:
+      operationId: showHeaders
+      summary: Show the headers that arrived
+      deprecated: true
+      tags: [inspect]
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json: {}
+components:
+  schemas:
+    Thing:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+          example: widget
+        kind:
+          type: string
+          enum: [widget, gadget]
+        price:
+          type: number
+          default: 9.99
+        released:
+          type: string
+          format: date
+        tags:
+          type: array
+          items:
+            type: string
+        owner:
+          $ref: "#/components/schemas/Owner"
+    Owner:
+      type: object
+      properties:
+        id:
+          type: integer
+          default: 1
+        email:
+          type: string
+          format: email

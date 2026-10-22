@@ -35,6 +35,11 @@ M.events = {
   env_required = { level = levels.WARN, important = true, desc = "a send was held back until you pick one" },
   env_missing = { level = levels.ERROR, important = true, desc = "no environment file was found" },
 
+  -- Importing --------------------------------------------------------------
+  openapi_loading = { level = levels.INFO, important = false, desc = "a spec is being fetched" },
+  openapi_inserted = { level = levels.INFO, important = true, desc = "a request was written into the buffer" },
+  openapi_error = { level = levels.ERROR, important = true, desc = "a spec could not be read" },
+
   -- The document ------------------------------------------------------------
   no_request = { level = levels.ERROR, important = true, desc = "no request under the cursor / in the file" },
   duplicate_names = { level = levels.WARN, important = true, desc = "two requests in a file share a name" },

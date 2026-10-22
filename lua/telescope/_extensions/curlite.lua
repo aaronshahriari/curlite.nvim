@@ -9,6 +9,7 @@
 --- through `:Telescope`, and for passing a theme in:
 ---
 ---   :Telescope curlite theme=dropdown
+---   :Telescope curlite openapi
 
 local ok, telescope = pcall(require, "telescope")
 if not ok then
@@ -19,11 +20,18 @@ local function env(opts)
   require("curlite").select_env({ telescope = opts })
 end
 
+local function openapi(opts)
+  require("curlite").openapi(nil, { telescope = opts })
+end
+
 return telescope.register_extension({
   exports = {
     -- `:Telescope curlite` with no subcommand picks the environment, which is
     -- the one you reach for.
     curlite = env,
     env = env,
+    -- `:Telescope curlite openapi` browses the project's spec and inserts the
+    -- request you pick at the cursor.
+    openapi = openapi,
   },
 })

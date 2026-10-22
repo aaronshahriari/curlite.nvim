@@ -267,6 +267,64 @@ local function check_config()
   check_notify(cfg)
 end
 
+local function check_openapi()
+  local config = require("curlite.config")
+  local openapi = require("curlite.openapi")
+  local cfg = config.get().openapi
+  local source = vim.api.nvim_buf_get_name(0)
+
+  if type(cfg.spec) == "string" and cfg.spec ~= "" then
+    vim.health.ok(("`openapi.spec` is set: %s"):format(cfg.spec))
+    if not openapi.is_url(cfg.spec) then
+      local path = require("curlite.util").resolve_path(cfg.spec, source)
+      if vim.uv.fs_stat(path) then
+        vim.health.ok(("found at %s"):format(vim.fn.fnamemodify(path, ":~:.")))
+      else
+        vim.health.warn(("no file at %s"):format(path))
+      end
+    end
+    return
+  end
+
+  local found = openapi.discover(source)
+  if #found == 0 then
+    vim.health.info(
+      ("no OpenAPI spec found near %s"):format(
+        source ~= "" and vim.fn.fnamemodify(source, ":~:.") or vim.fn.getcwd()
+      )
+    )
+    vim.health.info("`:Curlite openapi <path-or-url>` takes one directly")
+    return
+  end
+
+  local spec, err = openapi.load_file(found[1])
+  if not spec then
+    vim.health.warn(("%s could not be read"):format(vim.fn.fnamemodify(found[1], ":~:.")), { err })
+    return
+  end
+
+  local count = #openapi.operations(spec, { source = source })
+  local info = type(spec.info) == "table" and spec.info or {}
+  vim.health.ok(
+    ("%s — %s, %d operation%s"):format(
+      vim.fn.fnamemodify(found[1], ":~:."),
+      info.title and tostring(info.title) or "untitled",
+      count,
+      count == 1 and "" or "s"
+    )
+  )
+  if #found > 1 then
+    local rest = {}
+    for idx = 2, #found do
+      table.insert(rest, vim.fn.fnamemodify(found[idx], ":~:."))
+    end
+    vim.health.info(("also found (unused): %s"):format(table.concat(rest, ", ")))
+  end
+
+  local base = select(1, openapi.base(spec, source))
+  vim.health.ok(("imported requests start with %s"):format(base))
+end
+
 function M.check()
   vim.health.start("curlite.nvim")
 
@@ -287,6 +345,9 @@ function M.check()
 
   vim.health.start("curlite.nvim: environments")
   check_environments()
+
+  vim.health.start("curlite.nvim: openapi")
+  check_openapi()
 end
 
 return M

@@ -37,6 +37,7 @@ curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS C
 - **Lua scripts**, not JavaScript — `< {% ... %}` before, `> {% ... %}` after, with `request`, `response` and `client` in scope. You're already in a Lua editor.
 - **Assertions** — `# @assert status == 200` and `client.test(...)`, tallied in the winbar. `:CurliteRun file.http` runs a whole file and reports the totals.
 - **Auth** — Bearer, Basic, Digest, NTLM, Negotiate, AWS SigV4 and client certificates, each mapped onto the curl flag that implements it. A shared cookie jar carries a login's session into the next request.
+- **Import from OpenAPI / Swagger** — `<leader>RO` fuzzy-finds over the spec (a local `openapi.yaml`, a URL, or a Swagger UI page it follows to the JSON behind it), previews the exact request it would write, and `<CR>` drops it in at the cursor with the spec's own defaults, example body and required parameters filled in — against the environment you picked. OpenAPI 3.x and Swagger 2.0, JSON and YAML, no extra tooling.
 - **Paste a curl command**, get a request back — including what Chrome's "Copy as cURL" produces. And the reverse: yank any request as a pasteable curl line.
 - **Completion**, with or without a plugin — `{{` offers every variable that would actually resolve there, each with its value and the environment it came from, plus chain references, methods, header names and values, and `# @` metadata. blink.cmp and nvim-cmp sources are included; with neither, Neovim's own `omnifunc` is wired up and opens by itself after `{{`.
 
@@ -63,7 +64,7 @@ require("curlite").setup({})
 {
   "aaronshahriari/curlite.nvim",
   ft = { "http" },
-  cmd = { "Curlite", "CurliteRun" },
+  cmd = { "Curlite", "CurliteRun", "CurliteOpenapi" },
   opts = {},
 }
 ```
@@ -94,11 +95,11 @@ There's a full tour in [`demo/api.http`](demo/api.http) — every request in it 
 | `<leader>Re` | Pick the environment | `<leader>RC` | Turn a curl command in the clipboard into a request |
 | `<leader>Rf` | Jump to a request by name | `<leader>Ro` | Hide/show the response (also inside it) |
 | `<leader>f` | Format the request file | `<leader>Rn` / `<leader>Rp` | Next / previous request |
-| `<leader>Rx` | Clear response state | | |
+| `<leader>Rx` | Clear response state | `<leader>RO` | Insert a request from an OpenAPI spec |
 
 **In the response window:** `B` body, `H` headers, `A` all, `S` stats, `T` trace (verbose), `O` script; `<C-h>`/`<C-l>` cycle, `1`–`6` jump by position, and `[`/`]` walk history. `gq` filters a JSON body through `jq`, leaving `/` to search the response as usual. `gi` opens a copy of the body in its own tab as a plain modifiable buffer — `:%!jq '.items | map(.id)'`, `:g/.../d`, anything — and `q` throws it away. `gd` jumps back, `Y` yanks the body, `gs` saves it, `R` re-sends, `<leader>Ro` hides the window without leaving it, and `q` closes.
 
-`:Curlite [send|all|rest|replay|inspect|hover|env|pick|toggle|open|close|clear|cancel|curl|paste|format|scratch|body|log|health]` covers the same ground, and `:CurliteRun [file]` runs every request in a file and reports the assertion totals.
+`:Curlite [send|all|rest|replay|inspect|hover|env|pick|toggle|open|close|clear|cancel|curl|paste|openapi|format|scratch|body|log|health]` covers the same ground, `:CurliteRun [file]` runs every request in a file and reports the assertion totals, and `:CurliteOpenapi [spec]` imports from a spec.
 
 ## The `.http` format
 
@@ -276,6 +277,44 @@ request.default_headers  <  $shared's $default_headers
 ```
 
 The picker lists them under the variables, `:Curlite inspect` and `curl` show them resolved, and `:checkhealth curlite` names the ones in force.
+
+</details>
+
+<details>
+<summary><b>OpenAPI import</b> — fuzzy-find the spec, insert the request</summary>
+
+The API already documents itself. `<leader>RO` (or `:Curlite openapi`) reads the spec, lists every operation in it, and writes the one you pick into the file at the cursor:
+
+```
+╭─ Petstore 1.0.0 ──────╮ ╭──── Add a pet ─────────────────╮
+│ pet                   │ │### Add a pet                   │
+╰───────────────────────╯ │# @name createPet               │
+╭───────────────────────╮ │POST {{host}}/v2/pets           │
+│ GET    /pets          │ │Content-Type: application/json  │
+│ POST   /pets          │ │                                │
+│ DELETE /pets/{petId}  │ │{                               │
+│                       │ │  "name": "Rex"                 │
+╰─ 2/3  <CR> insert ────╯ ╰────────────────────────────────╯
+```
+
+The query matches method, path, summary, operationId and tags together, so `del pet`, `createPet` and `pets post` all find what you mean, and the right-hand pane is the **exact** block `<CR>` is about to insert — you choose by reading the request. With telescope installed it is a telescope picker (same list, same preview, your layout), where `<Tab>` marks several operations and inserts them in one go. The cursor lands on the inserted request line, so `<CR>` sends it.
+
+```
+:Curlite openapi                        the project's spec
+:Curlite openapi ./api/openapi.yaml     that file
+:Curlite openapi https://api.test/docs  that URL — or a Swagger UI page,
+                                        followed to the spec behind it
+```
+
+With no argument it looks for `openapi.json`, `openapi.yaml`, `swagger.json` and friends in the `.http` file's directory and every directory up to the project root — the nearest one wins. **OpenAPI 3.x and Swagger 2.0, JSON and YAML**, with nothing extra installed: curlite reads YAML itself (nested maps and sequences, flow collections, block scalars, anchors, aliases, merge keys).
+
+What ends up in the file comes from the spec: a parameter's `example`, then its schema's `default`, then the first `enum` member, then a sample for its type. A parameter the spec says nothing about becomes `{{name}}` — obvious, and completion offers it like any other variable. Path parameters are *always* left as variables unless the spec gives a value, because `/pets/0` looks like a real pet you didn't mean to touch. Bodies are built from the media type's `example` or its `schema` (`$ref` followed, `allOf` merged, required fields first) and written the way curlite reads them back, so an imported request parses and sends as-is.
+
+Two things are deliberately left out: optional parameters (`openapi.query = "all"` includes the query ones), and any header your environment already sends — writing `Authorization` again from the spec would override your real token with a placeholder.
+
+The base URL is **yours**, not the spec's: if any environment in the project defines `host` (or `baseUrl`, or anything in `openapi.base_vars`) the block says `{{host}}` and follows whichever environment you pick — you don't have to have picked one yet — keeping the path the spec's server declares under it. With no such variable it falls back to the spec's own `servers[0].url`, variables filled in from their defaults. `openapi.base = "spec"` always prefers the spec; a literal string overrides both.
+
+`:checkhealth curlite` says which spec it found, how many operations it holds and what imported requests will start with.
 
 </details>
 
@@ -460,9 +499,9 @@ The file format is identical, so your `.http` files and `http-client.env.json` w
 | **no backend** | no companion binary, no tree-sitter CLI, no download on install. `curl` is the only requirement. |
 | **protocols** | HTTP and GraphQL. No gRPC, WebSocket or streaming. |
 | **OAuth2** | no built-in flow — chain a token request instead. |
-| **OpenAPI explorer** | not included. |
+| **OpenAPI** | a fuzzy picker over the spec that writes the request you choose into the file, rather than a browser for the spec itself. |
 | **filtering** | a jq expression over the body (`gq` in the response window), or `gi` for the body in a scratch tab to run `:%!jq` over yourself. |
-| **environments** | nothing is selected until you pick. Opening a file starts with none, and the first send opens the picker rather than reusing yesterday's choice. |
+| **environments** | nothing is selected until you pick. Arriving in a project starts with none, and the first send opens the picker rather than reusing yesterday's choice. |
 
 Environments, the shared block, dynamic variables, request chaining, prompts, assertions, `>>` redirects, `< file` bodies, multipart and the scratchpad all behave the same way.
 
@@ -641,6 +680,22 @@ require("curlite").setup({
     headers_key = { "$default_headers", "$defaultHeaders" },  -- per-project default headers
   },
 
+  openapi = {
+    spec = nil,                            -- a path or URL to use outright
+    files = { "openapi.json", "openapi.yaml", "swagger.json", ... },
+    base = "env",                          -- "env" | "spec" | a literal prefix
+    base_vars = { "host", "baseUrl", "base_url", "baseURL", "url", "server" },
+    query = "required",                    -- "required" | "all" | "none"
+    accept = true,                         -- Accept: from the 2xx content type
+    skip_env_headers = true,               -- don't restate what the env sends
+    name_meta = true,                      -- `# @name <operationId>`
+    comments = true,                       -- summary/description/deprecated
+    name = "summary",                      -- the `###` title: "summary" | "operationId" | "path"
+    max_depth = 6,                         -- how deep to sample a schema
+    timeout = 10000,                       -- fetching a spec over http
+    picker = { list_width = 0.45 },        -- merged over ui.picker
+  },
+
   completion = {
     enable = true,                         -- set `omnifunc` on http buffers
     auto_trigger = true,                   -- open the menu after `{{` (no engine loaded)
@@ -670,6 +725,7 @@ require("curlite").setup({
     pick_request = "<leader>Rf",
     copy_curl    = "<leader>Rc",
     paste_curl   = "<leader>RC",
+    openapi      = "<leader>RO",
     inspect      = "<leader>Ri",
     hover        = "K",
     clear        = "<leader>Rx",

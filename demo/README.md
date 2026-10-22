@@ -48,11 +48,37 @@ every dynamic variable.
 | `<leader>Ri` | show the resolved request + its curl equivalent |
 | `<leader>Rc` | yank a shareable cURL command (`### NAME` included) |
 | `<leader>Rf` | jump to a request by name |
+| `<leader>RO` | insert a request from `openapi.yaml` |
 | `<leader>Rn` `<leader>Rp` | next / previous request |
 
 In the response window: `B`/`H`/`A`/`S`/`V`/`O` select panes, `[`/`]` walk the
 history, `/` filters a JSON body with jq, `gd` jumps back to the request, `Y`
 yanks the body, `gs` saves it, `R` re-sends, `q` closes.
+
+## Part 3 — importing from the spec
+
+`openapi.yaml` describes a handful of these httpbin endpoints the way a real
+API would. Pick `dev` with `<leader>Re`, then press `<leader>RO`: the picker
+lists every operation in the spec, previews the exact request it would write,
+and `<CR>` drops it into the file wherever your cursor is. The cursor lands on
+the request line, so `<leader>Rs` sends it straight away.
+
+Type to narrow: the query matches the method, path, summary, operationId and
+tags together, so `post`, `status`, `createThing` and `inspect` all find
+something. Things worth looking at in what comes out:
+
+| in the spec | in the block |
+| --- | --- |
+| `servers: https://httpbin.org` | `{{host}}` — your environment wins over the spec |
+| `page` with `default: 1` | `?page=1`, on its own continuation line |
+| `sort` with `enum: [asc, desc]` | `&sort=asc` |
+| `fields`, optional | left out |
+| `thing`, a path parameter with no example | `/anything/{{thing}}` — obvious, and completion offers it |
+| `code`, with `example: 418` | `/status/418` |
+| `X-Request-Id`, `format: uuid` | a zero uuid to paste over |
+| `Accept` from the environment's `$default_headers` | not restated |
+| `$ref: Thing` | a JSON body, required fields first |
+| `deprecated: true` | a `# deprecated` comment |
 
 ## Environment files
 

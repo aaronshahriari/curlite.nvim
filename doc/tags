@@ -1,5 +1,7 @@
 :Curlite	curlite.txt	/*:Curlite*
+:CurliteOpenapi	curlite.txt	/*:CurliteOpenapi*
 :CurliteRun	curlite.txt	/*:CurliteRun*
+any	curlite.txt	/*any*
 below	curlite.txt	/*below*
 curlite-api	curlite.txt	/*curlite-api*
 curlite-assertions	curlite.txt	/*curlite-assertions*
@@ -15,6 +17,7 @@ curlite-config-filetype	curlite.txt	/*curlite-config-filetype*
 curlite-config-format	curlite.txt	/*curlite-config-format*
 curlite-config-highlight	curlite.txt	/*curlite-config-highlight*
 curlite-config-misc	curlite.txt	/*curlite-config-misc*
+curlite-config-openapi	curlite.txt	/*curlite-config-openapi*
 curlite-config-request	curlite.txt	/*curlite-config-request*
 curlite-config-response	curlite.txt	/*curlite-config-response*
 curlite-config-scripts	curlite.txt	/*curlite-config-scripts*
@@ -55,6 +58,12 @@ curlite-notifications	curlite.txt	/*curlite-notifications*
 curlite-notify-events	curlite.txt	/*curlite-notify-events*
 curlite-notify-legacy	curlite.txt	/*curlite-notify-legacy*
 curlite-notify-options	curlite.txt	/*curlite-notify-options*
+curlite-openapi	curlite.txt	/*curlite-openapi*
+curlite-openapi-base	curlite.txt	/*curlite-openapi-base*
+curlite-openapi-block	curlite.txt	/*curlite-openapi-block*
+curlite-openapi-picker	curlite.txt	/*curlite-openapi-picker*
+curlite-openapi-spec	curlite.txt	/*curlite-openapi-spec*
+curlite-openapi-telescope	curlite.txt	/*curlite-openapi-telescope*
 curlite-pane-all	curlite.txt	/*curlite-pane-all*
 curlite-pane-body	curlite.txt	/*curlite-pane-body*
 curlite-pane-headers	curlite.txt	/*curlite-pane-headers*
@@ -68,6 +77,7 @@ curlite-request-variables	curlite.txt	/*curlite-request-variables*
 curlite-requirements	curlite.txt	/*curlite-requirements*
 curlite-response-window	curlite.txt	/*curlite-response-window*
 curlite-result-keymaps	curlite.txt	/*curlite-result-keymaps*
+curlite-scratch	curlite.txt	/*curlite-scratch*
 curlite-script-client	curlite.txt	/*curlite-script-client*
 curlite-script-request	curlite.txt	/*curlite-script-request*
 curlite-script-response	curlite.txt	/*curlite-script-response*
@@ -80,3 +90,4 @@ curlite.inline()	curlite.txt	/*curlite.inline()*
 curlite.run_file()	curlite.txt	/*curlite.run_file()*
 curlite.txt	curlite.txt	/*curlite.txt*
 project	curlite.txt	/*project*
+your	curlite.txt	/*your*
