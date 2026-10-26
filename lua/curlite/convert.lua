@@ -80,10 +80,7 @@ local BOOL_FLAGS = {
 ---@param command string
 ---@return string
 local function normalise(command)
-  return (command
-    :gsub("\\\r?\n", " ")
-    :gsub("^%s*[%$>]%s+", "")
-    :gsub("\r?\n", " "))
+  return (command:gsub("\\\r?\n", " "):gsub("^%s*[%$>]%s+", ""):gsub("\r?\n", " "))
 end
 
 --- Turn a curl command line into `.http` lines.
@@ -238,7 +235,13 @@ function M.from_curl(command)
   for key, value in pairs(meta) do
     if key == "insecure" or key == "compressed" or key == "http2" or key == "http3" then
       table.insert(lines, "# @" .. key)
-    elseif key == "timeout" or key == "proxy" or key == "cert" or key == "key" or key == "max-redirs" then
+    elseif
+      key == "timeout"
+      or key == "proxy"
+      or key == "cert"
+      or key == "key"
+      or key == "max-redirs"
+    then
       table.insert(lines, ("# @%s %s"):format(key, value))
     elseif key == "_curl" then
       table.insert(lines, ("# @curl %s"):format(table.concat(value, " ")))
@@ -285,8 +288,12 @@ function M.from_curl(command)
     table.insert(lines, "")
     -- Re-indent a JSON body so it is readable in the file.
     local trimmed = vim.trim(body)
-    if (trimmed:sub(1, 1) == "{" or trimmed:sub(1, 1) == "[") and require("curlite.util").json_decode(trimmed) then
-      local pretty = require("curlite.format").json(trimmed, require("curlite.config").get().response.indent)
+    if
+      (trimmed:sub(1, 1) == "{" or trimmed:sub(1, 1) == "[")
+      and require("curlite.util").json_decode(trimmed)
+    then
+      local pretty =
+        require("curlite.format").json(trimmed, require("curlite.config").get().response.indent)
       vim.list_extend(lines, vim.split(pretty, "\n", { plain = true }))
     elseif trimmed:find("&", 1, true) and not trimmed:find("\n", 1, true) then
       -- Break a long form body onto one parameter per line, which is how these

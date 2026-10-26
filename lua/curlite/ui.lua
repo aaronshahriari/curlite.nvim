@@ -315,8 +315,14 @@ local function render_headers(result)
     for _, name in ipairs(names) do
       local text = ("%s: %s"):format(name, hop.headers[name])
       table.insert(lines, text)
-      table.insert(marks, { line = #lines - 1, col = 0, end_col = #name + 1, hl = "CurliteHeaderName" })
-      table.insert(marks, { line = #lines - 1, col = #name + 2, end_col = #text, hl = "CurliteHeaderValue" })
+      table.insert(
+        marks,
+        { line = #lines - 1, col = 0, end_col = #name + 1, hl = "CurliteHeaderName" }
+      )
+      table.insert(
+        marks,
+        { line = #lines - 1, col = #name + 2, end_col = #text, hl = "CurliteHeaderValue" }
+      )
     end
   end
 
@@ -344,8 +350,14 @@ local function render_all(result)
       if req.headers[name] then
         local text = ("%s: %s"):format(name, req.headers[name])
         table.insert(lines, text)
-        table.insert(marks, { line = #lines - 1, col = 0, end_col = #name + 1, hl = "CurliteHeaderName" })
-        table.insert(marks, { line = #lines - 1, col = #name + 2, end_col = -1, hl = "CurliteHeaderValue" })
+        table.insert(
+          marks,
+          { line = #lines - 1, col = 0, end_col = #name + 1, hl = "CurliteHeaderName" }
+        )
+        table.insert(
+          marks,
+          { line = #lines - 1, col = #name + 2, end_col = -1, hl = "CurliteHeaderValue" }
+        )
       end
     end
 
@@ -427,8 +439,14 @@ local function render_stats(result)
   if (s.time_appconnect or 0) > 0 then
     row("TLS handshake", ms(s.time_appconnect - (s.time_connect or 0)))
   end
-  row("Request sent", ms(s.time_pretransfer and s.time_pretransfer - (s.time_appconnect or s.time_connect or 0)))
-  row("Waiting (TTFB)", ms(s.time_starttransfer and s.time_starttransfer - (s.time_pretransfer or 0)))
+  row(
+    "Request sent",
+    ms(s.time_pretransfer and s.time_pretransfer - (s.time_appconnect or s.time_connect or 0))
+  )
+  row(
+    "Waiting (TTFB)",
+    ms(s.time_starttransfer and s.time_starttransfer - (s.time_pretransfer or 0))
+  )
   row("Download", ms(s.time_total and s.time_total - (s.time_starttransfer or 0)))
   row("Total", util.human_time(resp.duration_ms), "CurliteTotal")
 
@@ -547,7 +565,10 @@ local function render_script(result)
       if test.message then
         for _, l in ipairs(vim.split(test.message, "\n", { plain = true })) do
           table.insert(lines, ("      %s"):format(l))
-          table.insert(marks, { line = #lines - 1, col = 0, end_col = -1, hl = "CurliteTestDetail" })
+          table.insert(
+            marks,
+            { line = #lines - 1, col = 0, end_col = -1, hl = "CurliteTestDetail" }
+          )
         end
       end
     end
@@ -660,7 +681,8 @@ local function restore_split(buf)
   if placement.root_edge then
     command = placement.after and "botright " or "topleft "
   else
-    if not vim.api.nvim_win_is_valid(placement.anchor)
+    if
+      not vim.api.nvim_win_is_valid(placement.anchor)
       or vim.api.nvim_win_get_tabpage(placement.anchor) ~= placement.tab
     then
       saved_split = nil
@@ -765,10 +787,13 @@ local function winbar(result)
         resp.status_text
       )
     )
-    table.insert(parts, ("%%#Comment# %s  %s%%*"):format(
-      util.human_time(resp.duration_ms),
-      util.human_size(#resp.body)
-    ))
+    table.insert(
+      parts,
+      ("%%#Comment# %s  %s%%*"):format(
+        util.human_time(resp.duration_ms),
+        util.human_size(#resp.body)
+      )
+    )
     local passed, failed = scripts.tally(result.script)
     if passed + failed > 0 then
       table.insert(
@@ -801,7 +826,10 @@ local function winbar(result)
     local label = PANE_LABELS[pane] or pane
     local group = pane == M.pane and "CurlitePaneActive" or "CurlitePaneInactive"
     -- `%N@fn@` makes the tab clickable.
-    table.insert(tabs, ("%%@v:lua.require'curlite.ui'.click_pane_%s@%%#%s# %s %%*%%X"):format(pane, group, label))
+    table.insert(
+      tabs,
+      ("%%@v:lua.require'curlite.ui'.click_pane_%s@%%#%s# %s %%*%%X"):format(pane, group, label)
+    )
   end
 
   return left .. "%=" .. table.concat(tabs, "")
@@ -872,13 +900,15 @@ local function draw(result, pane)
 
   -- Only the body pane gets a real filetype; the others are curlite's own
   -- layout and a language parser would only mis-highlight them.
-  local want_ft = ft or ({
-    verbose = "curlite_verbose",
-    headers = "curlite_headers",
-    all = "curlite_headers",
-    stats = "",
-    script = "",
-  })[pane] or ""
+  local want_ft = ft
+    or ({
+      verbose = "curlite_verbose",
+      headers = "curlite_headers",
+      all = "curlite_headers",
+      stats = "",
+      script = "",
+    })[pane]
+    or ""
   if vim.bo[buf].filetype ~= want_ft then
     vim.bo[buf].filetype = want_ft
   end
@@ -1107,8 +1137,7 @@ function M.flash(req, bufnr)
 
   -- The normal flash covers the whole section the user fired, including its
   -- `###` title and metadata. The optional line scope remains request-line only.
-  local first = cfg.flash_scope == "line"
-      and (req.url_line or req.start_line)
+  local first = cfg.flash_scope == "line" and (req.url_line or req.start_line)
     or (req.start_line or req.url_line)
   if not first then
     return
@@ -1406,7 +1435,12 @@ function M.apply_result_keymaps(buf)
 
   local function map(lhs, fn, desc)
     if lhs and lhs ~= false then
-      vim.keymap.set("n", lhs, fn, { buffer = buf, silent = true, nowait = true, desc = "curlite: " .. desc })
+      vim.keymap.set(
+        "n",
+        lhs,
+        fn,
+        { buffer = buf, silent = true, nowait = true, desc = "curlite: " .. desc }
+      )
     end
   end
 

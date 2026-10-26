@@ -122,7 +122,8 @@ function M.preview_lines(source, name)
     local empty = {
       "{}",
       "",
-      name and ("-- " .. name .. " defines no variables, and neither does " .. env.shared_keys()[1])
+      name
+          and ("-- " .. name .. " defines no variables, and neither does " .. env.shared_keys()[1])
         or ("-- " .. env.shared_keys()[1] .. " defines no variables"),
     }
     local empty_origins = {}
@@ -177,7 +178,7 @@ function M.open(opts)
     if backend == "telescope" then
       require("curlite.util").emit(
         "warn",
-        "curlite: picker.backend is \"telescope\" but telescope is not installed — using the built-in picker"
+        'curlite: picker.backend is "telescope" but telescope is not installed — using the built-in picker'
       )
     end
   end

@@ -103,9 +103,7 @@ local function read_json(path)
   end
   -- Strip `//` and `/* */` comments so a commented env file still loads; this
   -- is what every editor that touches these files tolerates in practice.
-  content = content
-    :gsub("/%*.-%*/", "")
-    :gsub("([^:])//[^\n\r]*", "%1")
+  content = content:gsub("/%*.-%*/", ""):gsub("([^:])//[^\n\r]*", "%1")
   local ok, decoded = pcall(vim.json.decode, content, { luanil = { object = true, array = true } })
   if not ok or type(decoded) ~= "table" then
     require("curlite.util").warn(("could not parse %s: %s"):format(path, decoded))

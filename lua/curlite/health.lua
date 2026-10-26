@@ -100,7 +100,9 @@ local function check_environments()
     return
   end
 
-  vim.health.ok(("%d environment%s: %s"):format(#names, #names == 1 and "" or "s", table.concat(names, ", ")))
+  vim.health.ok(
+    ("%d environment%s: %s"):format(#names, #names == 1 and "" or "s", table.concat(names, ", "))
+  )
   local current = env.current(source)
   if not current then
     vim.health.info(
@@ -127,7 +129,9 @@ local function check_environments()
   table.sort(listed)
   table.sort(dropped)
   if #listed > 0 then
-    vim.health.ok(("default headers from the environment file: %s"):format(table.concat(listed, ", ")))
+    vim.health.ok(
+      ("default headers from the environment file: %s"):format(table.concat(listed, ", "))
+    )
   end
   if #dropped > 0 then
     vim.health.info(("dropped by this environment: %s"):format(table.concat(dropped, ", ")))
@@ -144,7 +148,9 @@ local function check_notify(cfg)
 
   if type(raw) == "string" then
     vim.health.info(
-      ("notify = %q — the string form still works; `:h curlite-notifications` has the table"):format(raw)
+      ("notify = %q — the string form still works; `:h curlite-notifications` has the table"):format(
+        raw
+      )
     )
     return
   end
@@ -170,7 +176,9 @@ local function check_notify(cfg)
     if notify.events[name] == nil then
       table.insert(unknown, name)
     elseif type(rule) ~= "boolean" and notify.level(rule) == nil then
-      vim.health.error(("notify.events.%s = %s is neither a boolean nor a level"):format(name, vim.inspect(rule)))
+      vim.health.error(
+        ("notify.events.%s = %s is neither a boolean nor a level"):format(name, vim.inspect(rule))
+      )
     end
   end
   if #unknown > 0 then
@@ -196,11 +204,13 @@ local function check_notify(cfg)
   if #hidden == 0 then
     vim.health.ok("notifications: every event is getting through")
   else
-    vim.health.ok(("notifications: %d of %d events silenced (%s)"):format(
-      #hidden,
-      vim.tbl_count(notify.events),
-      table.concat(hidden, ", ")
-    ))
+    vim.health.ok(
+      ("notifications: %d of %d events silenced (%s)"):format(
+        #hidden,
+        vim.tbl_count(notify.events),
+        table.concat(hidden, ", ")
+      )
+    )
   end
 end
 
@@ -255,8 +265,8 @@ local function check_config()
   elseif has_telescope then
     vim.health.ok("environment picker: telescope")
   elseif backend == "telescope" then
-    vim.health.warn("picker.backend is \"telescope\" but telescope.nvim is not installed", {
-      "the built-in picker is used instead; set `ui.picker.backend = \"auto\"` to stop asking",
+    vim.health.warn('picker.backend is "telescope" but telescope.nvim is not installed', {
+      'the built-in picker is used instead; set `ui.picker.backend = "auto"` to stop asking',
     })
   else
     vim.health.ok("environment picker: built-in (telescope.nvim is not installed)")

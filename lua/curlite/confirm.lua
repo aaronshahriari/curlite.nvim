@@ -74,16 +74,19 @@ function M.ask(cmd, callback)
   ensure_highlights()
 
   local req_lines = preview.lines(cmd)
-  local geo = preview.geometry(vim.list_extend(vim.deepcopy(req_lines), {
-    "",
-    "Run this request?",
-    "",
-    BUTTONS,
-  }), {
-    min_width = 44,
-    max_width = math.min(72, vim.o.columns - 8),
-    wrap = true,
-  })
+  local geo = preview.geometry(
+    vim.list_extend(vim.deepcopy(req_lines), {
+      "",
+      "Run this request?",
+      "",
+      BUTTONS,
+    }),
+    {
+      min_width = 44,
+      max_width = math.min(72, vim.o.columns - 8),
+      wrap = true,
+    }
+  )
 
   local lines = vim.deepcopy(req_lines)
   table.insert(lines, "")

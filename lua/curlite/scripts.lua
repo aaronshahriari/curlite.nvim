@@ -178,7 +178,8 @@ local function build_scope(req, resp, result)
       table.insert(result.logs, table.concat(parts, " "))
     end,
     assert = function(cond, message)
-      local entry = { name = message and tostring(message) or "assert", ok = cond and true or false }
+      local entry =
+        { name = message and tostring(message) or "assert", ok = cond and true or false }
       if not cond then
         entry.message = message and tostring(message) or "assertion failed"
       end

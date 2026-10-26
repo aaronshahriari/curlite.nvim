@@ -235,7 +235,11 @@ end
 ---@return boolean
 function M.is_binary(body, content_type)
   local lower = (content_type or ""):lower()
-  if lower:find("image/", 1, true) or lower:find("audio/", 1, true) or lower:find("video/", 1, true) then
+  if
+    lower:find("image/", 1, true)
+    or lower:find("audio/", 1, true)
+    or lower:find("video/", 1, true)
+  then
     return true
   end
   if lower:find("application/octet%-stream") or lower:find("application/pdf") then

@@ -97,7 +97,6 @@ end
 function M.prepare(raw, opts)
   opts = opts or {}
 
-
   if not variables.resolve_prompts(raw, opts.force_prompts) then
     return nil, "cancelled"
   end
@@ -123,10 +122,7 @@ function M.prepare(raw, opts)
 
   if #missing > 0 then
     return nil,
-      ("unresolved variable%s: %s"):format(
-        #missing == 1 and "" or "s",
-        table.concat(missing, ", ")
-      ),
+      ("unresolved variable%s: %s"):format(#missing == 1 and "" or "s", table.concat(missing, ", ")),
       resolved,
       pre
   end
@@ -337,7 +333,8 @@ function M.send(raw, opts)
           local resp = response.build(cmd, sysresult, duration_ms)
 
           if cfg.request.substitute_in_response and resp.body ~= "" then
-            resp.body = variables.render(resp.body, variables.context(resolved, raw.source)) or resp.body
+            resp.body = variables.render(resp.body, variables.context(resolved, raw.source))
+              or resp.body
           end
 
           local post = nil

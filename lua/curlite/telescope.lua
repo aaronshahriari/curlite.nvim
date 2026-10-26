@@ -94,10 +94,9 @@ function M.open(opts)
             ("%d var%s%s"):format(
               e.entry.count,
               e.entry.count == 1 and "" or "s",
-              e.entry.headers > 0 and (", %d header%s"):format(
-                e.entry.headers,
-                e.entry.headers == 1 and "" or "s"
-              ) or ""
+              e.entry.headers > 0
+                  and (", %d header%s"):format(e.entry.headers, e.entry.headers == 1 and "" or "s")
+                or ""
             ),
             "CurliteEnvCount",
           },
@@ -152,7 +151,8 @@ function M.open(opts)
       preview_cutoff = 0,
     },
   }
-  local picker_opts = vim.tbl_deep_extend("force", defaults, cfg.telescope or {}, opts.telescope or {})
+  local picker_opts =
+    vim.tbl_deep_extend("force", defaults, cfg.telescope or {}, opts.telescope or {})
 
   -- Start on the selected environment, so <CR> is a no-op rather than a
   -- surprise. Telescope counts rows from the bottom.

@@ -504,11 +504,7 @@ function M.pick_request()
     table.insert(items, {
       idx = idx,
       req = req,
-      label = ("%-7s %s%s"):format(
-        req.method,
-        req.name and (req.name .. "  ") or "",
-        req.url
-      ),
+      label = ("%-7s %s%s"):format(req.method, req.name and (req.name .. "  ") or "", req.url),
     })
   end
 
@@ -783,7 +779,8 @@ end
 function M.inline(spec, cb)
   local req = spec
   if type(spec) == "string" then
-    local doc = parser.parse(vim.split(spec, "\n", { plain = true }), vim.fn.getcwd() .. "/inline.http")
+    local doc =
+      parser.parse(vim.split(spec, "\n", { plain = true }), vim.fn.getcwd() .. "/inline.http")
     req = doc.requests[1]
     if not req then
       util.emit("no_request", "curlite: inline spec contained no request")
@@ -800,7 +797,8 @@ end
 function M.inline_sync(spec, timeout_ms)
   local req = spec
   if type(spec) == "string" then
-    local doc = parser.parse(vim.split(spec, "\n", { plain = true }), vim.fn.getcwd() .. "/inline.http")
+    local doc =
+      parser.parse(vim.split(spec, "\n", { plain = true }), vim.fn.getcwd() .. "/inline.http")
     req = doc.requests[1]
     if not req then
       return nil
@@ -939,7 +937,10 @@ function M.events()
     table.insert(lines, { ("  %-16s "):format(name), on and "DiagnosticOk" or "Comment" })
     table.insert(lines, { ("%-6s "):format(label), "Comment" })
     table.insert(lines, { on and "shown  " or "hidden ", on and "DiagnosticOk" or "Comment" })
-    table.insert(lines, { spec.desc .. (spec.important and "  (important)" or "") .. "\n", "Comment" })
+    table.insert(
+      lines,
+      { spec.desc .. (spec.important and "  (important)" or "") .. "\n", "Comment" }
+    )
   end
   vim.api.nvim_echo(lines, true, {})
 end

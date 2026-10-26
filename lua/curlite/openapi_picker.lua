@@ -82,7 +82,7 @@ end
 
 ---@param opts curlite.openapi.PickerOpts
 function M.open(opts)
-  local backend = (picker_config().backend) or "auto"
+  local backend = picker_config().backend or "auto"
 
   if backend ~= "builtin" then
     if require("curlite.telescope").available() then
@@ -91,7 +91,7 @@ function M.open(opts)
     if backend == "telescope" then
       require("curlite.util").emit(
         "warn",
-        "curlite: picker.backend is \"telescope\" but telescope is not installed"
+        'curlite: picker.backend is "telescope" but telescope is not installed'
           .. " — using the built-in picker"
       )
     end

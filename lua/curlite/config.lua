@@ -178,11 +178,11 @@ M.defaults = {
     -- a split away, so only the status is on by default -- the inline text is
     -- there to answer "did it work?" at the cursor, not to repeat the winbar.
     inline = {
-      icon = true,    -- the status icon
-      status = true,  -- `200 OK`
-      time = false,   -- `· 143ms`
-      size = false,   -- `· 2.7KB`
-      tests = false,  -- `· 2/2` assertion tally
+      icon = true, -- the status icon
+      status = true, -- `200 OK`
+      time = false, -- `· 143ms`
+      size = false, -- `· 2.7KB`
+      tests = false, -- `· 2/2` assertion tally
     },
 
     -- Briefly highlight the whole request section in the buffer as it is sent,
@@ -259,15 +259,15 @@ M.defaults = {
     -- Keys are matched upper-case. Unlisted methods fall back to `default`.
     methods = {
       dark = {
-        GET = "#a6e3a1",      -- green
-        POST = "#89b4fa",     -- blue
-        PUT = "#fab387",      -- orange
-        PATCH = "#f9e2af",    -- yellow
-        DELETE = "#f38ba8",   -- red
-        HEAD = "#94e2d5",     -- teal
-        OPTIONS = "#94e2d5",  -- teal
-        QUERY = "#cba6f7",    -- mauve
-        GRAPHQL = "#cba6f7",  -- mauve
+        GET = "#a6e3a1", -- green
+        POST = "#89b4fa", -- blue
+        PUT = "#fab387", -- orange
+        PATCH = "#f9e2af", -- yellow
+        DELETE = "#f38ba8", -- red
+        HEAD = "#94e2d5", -- teal
+        OPTIONS = "#94e2d5", -- teal
+        QUERY = "#cba6f7", -- mauve
+        GRAPHQL = "#cba6f7", -- mauve
         TRACE = "#bac2de",
         CONNECT = "#bac2de",
         default = "#cdd6f4",
@@ -488,22 +488,22 @@ M.defaults = {
   -- Buffer-local keymaps applied to every `filetypes` buffer. Set any to
   -- `false` to drop it, or set `keymaps = false` to bind everything yourself.
   keymaps = {
-    send = "<leader>Rs",          -- send the request under the cursor
-    send_enter = "<CR>",          -- Kulala-compatible send shortcut
-    send_all = "<leader>Ra",      -- send every request in the file
-    replay = "<leader>Rr",        -- replay the last request
-    toggle = "<leader>Ro",        -- hide/show the response at its last split position
-    select_env = "<leader>Re",    -- pick the environment
-    pick_request = "<leader>Rf",  -- jump to a request in this file
-    copy_curl = "<leader>Rc",     -- yank a shareable curl command
-    paste_curl = "<leader>RC",    -- convert a curl command in the clipboard
-    openapi = "<leader>RO",       -- insert a request from an OpenAPI spec
-    inspect = "<leader>Ri",       -- show the fully-resolved request
-    hover = "K",                  -- LSP-style hover with the resolved request
+    send = "<leader>Rs", -- send the request under the cursor
+    send_enter = "<CR>", -- Kulala-compatible send shortcut
+    send_all = "<leader>Ra", -- send every request in the file
+    replay = "<leader>Rr", -- replay the last request
+    toggle = "<leader>Ro", -- hide/show the response at its last split position
+    select_env = "<leader>Re", -- pick the environment
+    pick_request = "<leader>Rf", -- jump to a request in this file
+    copy_curl = "<leader>Rc", -- yank a shareable curl command
+    paste_curl = "<leader>RC", -- convert a curl command in the clipboard
+    openapi = "<leader>RO", -- insert a request from an OpenAPI spec
+    inspect = "<leader>Ri", -- show the fully-resolved request
+    hover = "K", -- LSP-style hover with the resolved request
     next_request = "<leader>Rn",
     prev_request = "<leader>Rp",
-    format = "<leader>f",         -- format this .http buffer
-    clear = "<leader>Rx",         -- clear inline status + close the window
+    format = "<leader>f", -- format this .http buffer
+    clear = "<leader>Rx", -- clear inline status + close the window
   },
 
   -- Keymaps inside the response window. Same rules as above.
@@ -521,14 +521,14 @@ M.defaults = {
     show_script = "O",
     next_history = "]",
     prev_history = "[",
-    jump_to_request = "gd",  -- jump back to the request that produced this
+    jump_to_request = "gd", -- jump back to the request that produced this
     yank_body = "Y",
     save_body = "gs",
     -- A jq expression over a JSON body. `/` is deliberately left alone so it
     -- keeps searching the response like it does in any other buffer; set this
     -- to "/" if you would rather have the filter back on it.
     filter = "gq",
-    refresh = "R",           -- re-send the request that produced this
+    refresh = "R", -- re-send the request that produced this
     -- Open a copy of the body in its own tab, as an ordinary modifiable
     -- buffer: `:%!jq .items` and every other Vim tool work over it there, and
     -- `q` throws the tab away.

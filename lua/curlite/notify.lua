@@ -23,38 +23,98 @@ local levels = vim.log.levels
 M.events = {
   -- Request lifecycle -------------------------------------------------------
   request_sent = { level = levels.INFO, important = false, desc = "a request is going out" },
-  request_done = { level = levels.INFO, important = false, desc = "a response landed (WARN for 4xx/5xx)" },
-  request_skipped = { level = levels.INFO, important = false, desc = "a pre-request script skipped the request" },
-  request_aborted = { level = levels.WARN, important = true, desc = "a script aborted a `send_all` run" },
-  request_error = { level = levels.ERROR, important = true, desc = "the request could not be built or sent" },
-  run_summary = { level = levels.INFO, important = true, desc = "the tally after `send_all` / `run_file`" },
+  request_done = {
+    level = levels.INFO,
+    important = false,
+    desc = "a response landed (WARN for 4xx/5xx)",
+  },
+  request_skipped = {
+    level = levels.INFO,
+    important = false,
+    desc = "a pre-request script skipped the request",
+  },
+  request_aborted = {
+    level = levels.WARN,
+    important = true,
+    desc = "a script aborted a `send_all` run",
+  },
+  request_error = {
+    level = levels.ERROR,
+    important = true,
+    desc = "the request could not be built or sent",
+  },
+  run_summary = {
+    level = levels.INFO,
+    important = true,
+    desc = "the tally after `send_all` / `run_file`",
+  },
   cancelled = { level = levels.INFO, important = true, desc = "in-flight requests were cancelled" },
 
   -- Environments ------------------------------------------------------------
   env_selected = { level = levels.INFO, important = true, desc = "an environment was chosen" },
-  env_required = { level = levels.WARN, important = true, desc = "a send was held back until you pick one" },
+  env_required = {
+    level = levels.WARN,
+    important = true,
+    desc = "a send was held back until you pick one",
+  },
   env_missing = { level = levels.ERROR, important = true, desc = "no environment file was found" },
 
   -- Importing --------------------------------------------------------------
   openapi_loading = { level = levels.INFO, important = false, desc = "a spec is being fetched" },
-  openapi_inserted = { level = levels.INFO, important = true, desc = "a request was written into the buffer" },
+  openapi_inserted = {
+    level = levels.INFO,
+    important = true,
+    desc = "a request was written into the buffer",
+  },
   openapi_error = { level = levels.ERROR, important = true, desc = "a spec could not be read" },
 
   -- The document ------------------------------------------------------------
-  no_request = { level = levels.ERROR, important = true, desc = "no request under the cursor / in the file" },
-  duplicate_names = { level = levels.WARN, important = true, desc = "two requests in a file share a name" },
-  parse_error = { level = levels.ERROR, important = true, desc = "a file or curl command would not parse" },
+  no_request = {
+    level = levels.ERROR,
+    important = true,
+    desc = "no request under the cursor / in the file",
+  },
+  duplicate_names = {
+    level = levels.WARN,
+    important = true,
+    desc = "two requests in a file share a name",
+  },
+  parse_error = {
+    level = levels.ERROR,
+    important = true,
+    desc = "a file or curl command would not parse",
+  },
 
   -- Resolving a request -----------------------------------------------------
-  import_error = { level = levels.WARN, important = true, desc = "`# @import` could not read a file" },
-  chain_error = { level = levels.WARN, important = true, desc = "`# @run` names a request that does not exist" },
-  variable_error = { level = levels.WARN, important = true, desc = "`{{$exec ...}}` and friends failed" },
-  script_error = { level = levels.WARN, important = true, desc = "a pre/post-request script raised" },
+  import_error = {
+    level = levels.WARN,
+    important = true,
+    desc = "`# @import` could not read a file",
+  },
+  chain_error = {
+    level = levels.WARN,
+    important = true,
+    desc = "`# @run` names a request that does not exist",
+  },
+  variable_error = {
+    level = levels.WARN,
+    important = true,
+    desc = "`{{$exec ...}}` and friends failed",
+  },
+  script_error = {
+    level = levels.WARN,
+    important = true,
+    desc = "a pre/post-request script raised",
+  },
 
   -- Clipboard and files -----------------------------------------------------
   yank = { level = levels.INFO, important = true, desc = "something was copied to a register" },
   save = { level = levels.INFO, important = true, desc = "a response body was written to disk" },
-  write_error = { level = levels.WARN, important = true, desc = "a `>>` redirect could not be written" },
+  write_error = {
+    level = levels.WARN,
+    important = true,
+    desc = "a `>>` redirect could not be written",
+  },
 
   -- The response window -----------------------------------------------------
   no_response = { level = levels.INFO, important = false, desc = "`toggle` with nothing to show" },

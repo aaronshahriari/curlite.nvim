@@ -72,8 +72,18 @@ end
 
 local FIRST_NAMES =
   { "Ada", "Alan", "Grace", "Linus", "Ken", "Barbara", "Edsger", "Margaret", "Donald", "Radia" }
-local LAST_NAMES =
-  { "Lovelace", "Turing", "Hopper", "Torvalds", "Thompson", "Liskov", "Dijkstra", "Hamilton", "Knuth", "Perlman" }
+local LAST_NAMES = {
+  "Lovelace",
+  "Turing",
+  "Hopper",
+  "Torvalds",
+  "Thompson",
+  "Liskov",
+  "Dijkstra",
+  "Hamilton",
+  "Knuth",
+  "Perlman",
+}
 
 --- Offset-aware date arithmetic for `{{$datetime iso8601 -1 d}}`.
 ---@param amount number

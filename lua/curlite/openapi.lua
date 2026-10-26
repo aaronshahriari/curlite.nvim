@@ -358,8 +358,9 @@ function M.load(target, source, cb)
   if #found == 0 then
     return cb(
       nil,
-      ("no OpenAPI spec found near %s — pass one to `:Curlite openapi`, or set `openapi.spec`")
-        :format(source and source ~= "" and vim.fn.fnamemodify(source, ":~:.") or vim.fn.getcwd())
+      ("no OpenAPI spec found near %s — pass one to `:Curlite openapi`, or set `openapi.spec`"):format(
+        source and source ~= "" and vim.fn.fnamemodify(source, ":~:.") or vim.fn.getcwd()
+      )
     )
   end
   local spec, err = M.load_file(found[1])
@@ -1251,7 +1252,7 @@ function M.title(op)
   end
   if op.summary then
     -- A separator is one line, so a multi-line summary is cut to its first.
-    return (vim.split(op.summary, "\n", { plain = true })[1])
+    return vim.split(op.summary, "\n", { plain = true })[1]
   end
   return op.id or op.label
 end

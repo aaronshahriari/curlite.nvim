@@ -330,7 +330,10 @@ function M.build(req)
     vim.list_extend(argv, { "--proxy", tostring(meta.proxy) })
   end
   if meta["unix-socket"] then
-    vim.list_extend(argv, { "--unix-socket", util.resolve_path(tostring(meta["unix-socket"]), req.source) })
+    vim.list_extend(
+      argv,
+      { "--unix-socket", util.resolve_path(tostring(meta["unix-socket"]), req.source) }
+    )
   end
   if meta.cert then
     vim.list_extend(argv, { "--cert", util.resolve_path(tostring(meta.cert), req.source) })
@@ -525,7 +528,11 @@ function M.to_shell(cmd, multiline)
       goto continue
     end
     -- Group a flag with its value so multiline output breaks in useful places.
-    if arg:match("^%-%-?[%w%-%.]+$") and cmd.argv[i + 1] and not cmd.argv[i + 1]:match("^%-%-?[%a]") then
+    if
+      arg:match("^%-%-?[%w%-%.]+$")
+      and cmd.argv[i + 1]
+      and not cmd.argv[i + 1]:match("^%-%-?[%a]")
+    then
       -- Only a flag that actually takes a value; booleans stand alone.
       local takes_value = not vim.tbl_contains({
         "--location",

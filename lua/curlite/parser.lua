@@ -201,13 +201,13 @@ function M.parse(lines, source)
   local doc = { requests = {}, variables = {}, var_lines = {}, imports = {}, source = source }
 
   local req = new_request()
-  local have_request = false          -- seen a request line in this section
-  local section_started = false       -- seen anything at all in this section
-  local state = "head"                -- head -> headers -> body
-  local body_lines = {}               -- accumulated raw body lines
-  local pending_meta = {}             -- metadata seen before the request line
-  local script_buf = nil              -- { dir = "<"|">", lines = {} } while in {% %}
-  local var_snapshot = {}             -- document vars visible right now
+  local have_request = false -- seen a request line in this section
+  local section_started = false -- seen anything at all in this section
+  local state = "head" -- head -> headers -> body
+  local body_lines = {} -- accumulated raw body lines
+  local pending_meta = {} -- metadata seen before the request line
+  local script_buf = nil -- { dir = "<"|">", lines = {} } while in {% %}
+  local var_snapshot = {} -- document vars visible right now
 
   local function flush()
     if not have_request then

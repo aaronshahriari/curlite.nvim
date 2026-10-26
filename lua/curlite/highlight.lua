@@ -99,7 +99,7 @@ function M.setup_highlights()
   end
 
   local variant = vim.o.background == "light" and "light" or "dark"
-  local palette = ((cfg.methods or {})[variant]) or {}
+  local palette = (cfg.methods or {})[variant] or {}
   local style = cfg.method_style or {}
 
   for _, group in pairs(METHOD_GROUPS) do
