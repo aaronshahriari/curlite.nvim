@@ -382,12 +382,24 @@ function M.inspect()
   end
 end
 
---- Hover: the resolved request under the cursor, in an LSP-style popup.
+--- Hover: the resolved request under the cursor, as a card beside it.
 ---
---- Deliberately not `inspect`: this is the small, cursor-anchored float that
---- closes when you move, exactly like `vim.lsp.buf.hover()`. It shows the
---- request and nothing else -- no curl line. Press `K` again to step into it.
+--- Deliberately not `inspect`: this is the cursor-anchored glance that closes
+--- the moment you move, the way `vim.lsp.buf.hover()` does. It shows the
+--- request and nothing else -- no curl line. Press `K` again to step into it,
+--- `q` or `<Esc>` to close. `ui.hover` configures the layout; see
+--- |curlite-hover|.
+---@return integer|nil buf, integer|nil win
 function M.hover()
+  local hover = require("curlite.hover")
+
+  -- A second `K` focuses the card that is already up, so the request never
+  -- has to be re-prepared (and its pre-request scripts never re-run) just to
+  -- step into it.
+  if hover.current() then
+    return hover.open({})
+  end
+
   local req = request_at_cursor()
   if not req then
     util.emit("no_request", "curlite: no request found in this buffer")
@@ -395,60 +407,18 @@ function M.hover()
   end
 
   local cmd, err, resolved = exec.prepare(req)
-  local body
-  if err then
-    body = { ("# %s"):format(err) }
-    if resolved then
-      table.insert(body, ("%s %s"):format(resolved.method, resolved.url))
-    end
-  else
-    body = require("curlite.preview").lines(cmd, false)
-  end
-
-  -- With an `http` treesitter parser the markdown fence gets highlighted by
-  -- injection, the way an LSP hover does it. Without one, drop the fence and
-  -- let `syntax/http.vim` colour the buffer instead -- a bare ```http block
-  -- would otherwise render as plain text.
-  local contents, syntax = body, "http"
-  local ok, added = pcall(vim.treesitter.language.add, "http")
-  if ok and added then
-    contents = { "```http" }
-    vim.list_extend(contents, body)
-    table.insert(contents, "```")
-    syntax = "markdown"
-  end
-
-  -- `BufLeave` must stay out of `close_events`: pressing `K` again focuses the
-  -- float, which leaves the request buffer, and that close autocmd is
-  -- unconditional -- it would shut the window the second before you land in
-  -- it. `open_floating_preview` registers its own `BufLeave` handler that
-  -- ignores the float's own buffer, so leaving for anywhere else still closes.
-  local float_buf, float_win = vim.lsp.util.open_floating_preview(contents, syntax, {
-    border = config.get().ui.float.border,
-    focus_id = "curlite_hover",
-    wrap = true,
-    max_width = math.max(40, math.min(100, vim.o.columns - 10)),
-    max_height = math.max(5, math.floor(vim.o.lines * 0.5)),
-    close_events = { "CursorMoved", "CursorMovedI", "InsertCharPre", "WinScrolled" },
+  local shown = cmd and cmd.request or resolved
+  return hover.open({
+    method = shown and shown.method or req.method,
+    url = shown and shown.url or nil,
+    http_version = shown and shown.http_version or nil,
+    headers = shown and shown.headers or nil,
+    header_order = shown and shown.header_order or nil,
+    body = cmd and cmd.sent_body or nil,
+    name = req.name,
+    env = env.current(M.source_hint()),
+    error = err,
   })
-
-  -- `q` comes from `open_floating_preview`; `<Esc>` matches curlite's other
-  -- floats. Setting it on every call is harmless -- the second `K` hands back
-  -- the same window. The buffer check skips the third path through
-  -- `open_floating_preview`, which returns the *source* buffer when it steps
-  -- back out of an already-focused float; mapping `<Esc>` there would shadow it
-  -- in the request buffer.
-  if
-    float_win
-    and vim.api.nvim_win_is_valid(float_win)
-    and vim.api.nvim_win_get_buf(float_win) == float_buf
-  then
-    vim.keymap.set("n", "<Esc>", function()
-      pcall(vim.api.nvim_win_close, float_win, true)
-    end, { buffer = float_buf, nowait = true, silent = true })
-  end
-
-  return float_buf, float_win
 end
 
 --- Pick the active environment.

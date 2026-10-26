@@ -52,6 +52,7 @@ CONTENTS                                                    *curlite-contents*
        curl ...................................... |curlite-config-curl|
        Requests .................................. |curlite-config-request|
        UI ........................................ |curlite-config-ui|
+       The hover card ............................ |curlite-hover|
        Responses ................................. |curlite-config-response|
        Formatting ................................ |curlite-config-format|
        Highlighting .............................. |curlite-config-highlight|
@@ -1156,9 +1157,8 @@ against the URL the spec was fetched from.
     replay      re-send whatever ran last
     inspect     show the resolved request and its curl equivalent
                                                              *curlite-inspect*
-    hover       an LSP-style popup with just the resolved request; press the
-                mapping again to step into the popup
-                                                               *curlite-hover*
+    hover       the resolved request as a card beside the cursor; press the
+                mapping again to step into it |curlite-hover|
     env         pick the environment
     pick        jump to a request in this file
     toggle      toggle the response window
@@ -1210,9 +1210,10 @@ Set buffer-locally in every `http` buffer:
     <leader>RC      convert a curl command in the clipboard
     <leader>RO      insert a request from an OpenAPI spec |curlite-openapi|
     <leader>Ri      inspect the resolved request
-    K               hover: the resolved request in an LSP-style popup. Press
-                    `K` again to move the cursor inside it, then `q` or `<Esc>`
-                    to close. Moving the cursor dismisses it.
+    K               hover: the resolved request as a card beside the cursor
+                    |curlite-hover|. Press `K` again to move the cursor inside
+                    it, then `q` or `<Esc>` to close. Moving the cursor
+                    dismisses it.
     <leader>Rx      clear
     <leader>Rn/Rp   next / previous request
     <leader>f       format the request file
@@ -1258,6 +1259,18 @@ The complete default table: >lua
         width = 0.5,
         height = 0.5,
         float = { width = 0.8, height = 0.8, border = "rounded" },
+        hover = {
+          style       = "card",
+          border      = nil,
+          min_width   = 46,
+          max_width   = 88,
+          max_height  = 0.5,
+          padding     = 2,
+          split_query = true,
+          body_lines  = 40,
+          rules       = true,
+          hints       = true,
+        },
         picker = {
           width = 0.8,
           height = 0.7,
@@ -1505,6 +1518,101 @@ are all covered in |curlite-response-window| and |curlite-display|.
 `ui.highlights` ~
     What the six status highlight groups link to. See |curlite-highlights|.
 
+------------------------------------------------------------------------------
+THE HOVER CARD                                                 *curlite-hover*
+
+`K` puts the resolved request up beside the cursor. It is the glance you take
+mid-edit -- what will actually be sent, after the environment, the document
+variables and the pre-request script have had their say -- and it closes the
+moment you move. `:Curlite inspect` is the other half of the pair: the same
+request plus its curl line, in a window you go and read.
+
+                                                          *curlite-hover-card*
+>
+    ╭ CREATE_THING · dev ─────────────────────────────╮
+    │                                                 │
+    │  POST https://api.example.com/v1/things         │
+    │       ?expand = owner                           │
+    │       &fields = id,name                         │
+    │                                                 │
+    │  headers ────────────────────────────────── 3   │
+    │  Content-Type:   application/json               │
+    │  Authorization:  Bearer eyJhbGciOiJIUzI1Ni…     │
+    │                                                 │
+    │  body ─────────────────────────── json · 94B    │
+    │  {                                              │
+    │    "name": "widget"                             │
+    │  }                                              │
+    │                                                 │
+    ╰ K focus · q close ──────────────────────────────╯
+<
+Three things are doing the work there:
+
+    - the query string is broken out, one `key = value` per line under the
+      URL. A resolved URL is the longest line in a request and the part you
+      are checking is almost always a parameter.
+    - header values are aligned into a column, and one too long for the card
+      wraps under that column instead of running off the edge.
+    - the sections are labelled, so the body is findable at a glance. The
+      label says what the body is and how big it is.
+
+The border carries the request's `### NAME` and the active environment, so a
+card can never be mistaken for one from another environment, and the footer
+carries the keys. The method, the URL and the header names keep the colours
+they have in the buffer; see |curlite-hover-highlights|.
+
+`K` again steps into the card -- for a body taller than the card, that is how
+you scroll it; `q`, `<Esc>` or moving the cursor closes it. Nothing is
+re-prepared on that second press, so a pre-request script does not run twice.
+
+`ui.hover.style` ~
+    `"card"` (default) is the layout above. `"plain"` is the popup curlite
+    put up before the card: the raw resolved request in a
+    `vim.lsp.util.open_floating_preview()` float, with no border title, no
+    sections and no alignment.
+
+`ui.hover.border` ~
+    The border, as |nvim_open_win()| takes it. Falls back to `ui.float.border`
+    when `nil`, which is the default. `"none"` drops the title and the key
+    hints along with the border, because Neovim has nowhere to draw them.
+
+`ui.hover.min_width` / `ui.hover.max_width` ~
+    The card's width, border included. It hugs its content between the two,
+    so a one-line GET does not come up as a sliver and a signed URL cannot
+    push it across the screen. Defaults `46` and `88`.
+
+`ui.hover.max_height` ~
+    Height ceiling: a fraction of the editor, or an absolute line count above
+    1. Default `0.5`. A card with more rows than that scrolls -- the footer
+    says how many are below the fold, and `K` steps in to read them.
+
+`ui.hover.padding` ~
+    Cells of breathing room inside the border, and a blank row top and bottom
+    with it. Default `2`. `0` packs the text against the border the way an
+    LSP hover does.
+
+`ui.hover.split_query` ~
+    Break the query string out under the URL, one parameter per line. Default
+    `true`. `false` leaves the URL in one piece, wrapped if it has to be.
+
+`ui.hover.body_lines` ~
+    Lines of body to show before `… N more lines`. Default `40`; `0` shows
+    all of it. The card's own height ceiling still applies.
+
+`ui.hover.rules` ~
+    The dim `headers ───` and `body ───` dividers. Default `true`.
+
+`ui.hover.hints` ~
+    The `K focus · q close` footer. Default `true`.
+
+A card on every `.http` buffer with no border and no furniture: >lua
+
+    require("curlite").setup({
+      ui = {
+        hover = { border = "none", rules = false, hints = false, padding = 1 },
+      },
+    })
+<
 ------------------------------------------------------------------------------
 RESPONSES                                            *curlite-config-response*
 
@@ -2130,6 +2238,24 @@ square in most themes -- on top of the highlight. `CurliteConfirmCursor` is
 `blend = 100`, which makes it invisible without moving it. `guicursor` is
 global, so it is saved and restored around the dialog, including when the
 window is closed without an answer.
+
+                                                    *curlite-hover-highlights*
+The hover card ~
+    CurliteHoverNormal     the card's background      -> NormalFloat
+    CurliteHoverBorder     its border                 -> FloatBorder
+    CurliteHoverTitle      the request's name         -> Title
+    CurliteHoverEnv        the environment beside it  -> Special
+    CurliteHoverLabel      `headers`, `body`           -> Label
+    CurliteHoverRule       the dividers                -> NonText
+    CurliteHoverMeta       a divider's right-hand side -> Comment
+    CurliteHoverHint       the key hints in the footer -> Comment
+    CurliteHoverPunct      `?`, `&`, `=`                 -> Delimiter
+    CurliteHoverQueryKey   a query parameter's name    -> Identifier
+    CurliteHoverQueryValue its value                   -> String
+    CurliteHoverError      an unresolvable request     -> DiagnosticError
+
+The method, the URL, the header names and their values use the request-buffer
+groups below, so a hovered request reads like the one you wrote.
 
 HTTP request buffers ~
     CurliteHttpSeparator      the `###` marker         -> Comment

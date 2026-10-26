@@ -14,7 +14,7 @@ local M = {}
 --- mask -- unlike `curlite.request_format`, which formats the source you keep.
 ---@param body string
 ---@return string[]
-local function body_lines(body)
+function M.body(body)
   local cfg = config.get()
   local first = vim.trim(body):sub(1, 1)
 
@@ -45,7 +45,7 @@ function M.lines(cmd, include_curl)
   end
   if cmd.sent_body and cmd.sent_body ~= "" then
     table.insert(lines, "")
-    vim.list_extend(lines, body_lines(cmd.sent_body))
+    vim.list_extend(lines, M.body(cmd.sent_body))
   end
   if include_curl then
     table.insert(lines, "")

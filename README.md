@@ -31,6 +31,7 @@ curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS C
 
 - **Send from the buffer** — the request under the cursor, all of them, or everything from the cursor down. ` 200 OK` appears inline at the end of the request line; timing, size and test totals can be enabled there too.
 - **Six response panes** — body, headers, both, timing and size, curl's verbose trace, script output. Open them with `B`/`H`/`A`/`S`/`T`/`O`, or jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `gq` filters it live through `jq`, while `gi` drops a copy in its own tab to filter by hand. `/` stays plain Vim search.
+- **Hover the resolved request** — `K` puts a card beside the cursor showing what will actually be sent: the query string broken out one parameter per line, header values aligned into a column, the body labelled with its type and size, and the request's name and environment on the border. `K` again steps inside to scroll it; moving the cursor dismisses it.
 - **Environments** from `http-client.env.json` — a `$curliteshared` block, a gitignored `.private.` overlay, per-project `$default_headers`, and a picker that shows each environment's variables beside its name. Nothing is selected until you pick: arriving in a project starts with no environment, and the first send asks which one.
 - **Variables everywhere** — document, environment, process env, `.env`, prompts, dynamic (`{{$uuid}}`, `{{$timestamp -1 d}}`, `{{$randomInt 1 100}}`) and shell (`{{$exec pass show api/token}}`). Resolution is recursive, so `@base = {{host}}/v1` works.
 - **Request chaining** — `{{LOGIN.response.body.$.data.token}}` reads an earlier response, and `# @run LOGIN` makes curlite send it for you first.
@@ -89,7 +90,7 @@ There's a full tour in [`demo/api.http`](demo/api.http) — every request in it 
 
 | Key | Action | Key | Action |
 |---|---|---|---|
-| `<leader>Rs` / `<CR>` | Send the request under the cursor | `K` | Hover: the resolved request, LSP-style — `K` again steps inside |
+| `<leader>Rs` / `<CR>` | Send the request under the cursor | `K` | Hover the resolved request beside the cursor — `K` again steps inside |
 | `<leader>Ra` | Send every request in the file | `<leader>Ri` | The same, plus the curl equivalent, in a window you can read |
 | `<leader>Rr` | Replay the last one | `<leader>Rc` | Yank a shareable cURL command |
 | `<leader>Re` | Pick the environment | `<leader>RC` | Turn a curl command in the clipboard into a request |
@@ -161,6 +162,38 @@ DELETE {{prod}}/users/42
 | `@skip` | never send this one; a "send all" steps over it |
 | `@no-cookie-jar` | don't touch the shared jar |
 | `@curl ARGS` | raw curl flags, the escape hatch |
+
+</details>
+
+<details>
+<summary><b>Hover</b> — <code>K</code>, the resolved request beside the cursor</summary>
+
+```
+╭ CREATE_THING · dev ─────────────────────────────╮
+│                                                 │
+│  POST https://api.example.com/v1/things         │
+│       ?expand = owner                           │
+│       &fields = id,name                         │
+│                                                 │
+│  headers ────────────────────────────────── 3   │
+│  Content-Type:   application/json               │
+│  Authorization:  Bearer eyJhbGciOiJIUzI1Ni…     │
+│                                                 │
+│  body ─────────────────────────── json · 94B    │
+│  {                                              │
+│    "name": "widget"                             │
+│  }                                              │
+│                                                 │
+╰ K focus · q close ──────────────────────────────╯
+```
+
+What it shows is the request *after* the environment, the document variables and the pre-request script have had their say — the same thing `<leader>Ri` shows, minus the curl line and without leaving the buffer.
+
+The query string is broken out because a resolved URL is the longest line in a request and the part you're checking is almost always a parameter. Header values are aligned into a column and wrap under it rather than off the edge. The border carries the request's `### NAME` and the environment it resolved against, so a card can't be mistaken for one from another environment.
+
+`K` again steps inside — that's how you scroll a body taller than the card — then `q` or `<Esc>` closes it. Moving the cursor dismisses it. The method, URL and header names keep the colours they have in the buffer; the card's own groups are `CurliteHover*`.
+
+Every part of it is configurable under `ui.hover`, including `style = "plain"` for the old LSP-style popup. See `:h curlite-hover`.
 
 </details>
 
@@ -593,6 +626,17 @@ require("curlite").setup({
     width = 0.5,                           -- fraction or columns, left/right
     height = 0.5,                          -- fraction or rows, above/below
     float = { width = 0.8, height = 0.8, border = "rounded" },
+    hover = {                              -- the `K` card
+      style = "card",                      -- or "plain" for the old LSP-style popup
+      border = nil,                        -- nil = ui.float.border
+      min_width = 46, max_width = 88,      -- the card hugs its content between these
+      max_height = 0.5,                    -- fraction of the editor, or lines above 1
+      padding = 2,                         -- breathing room inside the border
+      split_query = true,                  -- one `key = value` per line under the URL
+      body_lines = 40,                     -- then `… N more lines`; 0 = all of it
+      rules = true,                        -- the `headers ───` / `body ───` dividers
+      hints = true,                        -- the `K focus · q close` footer
+    },
     picker = {                             -- the environment picker
       backend = "auto",                    -- telescope when installed, else built-in
       telescope = {},                      -- passed to telescope's picker

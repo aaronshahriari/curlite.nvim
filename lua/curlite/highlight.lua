@@ -38,6 +38,15 @@ local LEGACY_METHOD_GROUPS = {
   CurliteHttpMethodChange = "CurliteHttpMethodPut",
 }
 
+--- The highlight group a method name is drawn in, or nil for one curlite does
+--- not know. The hover card wants the same colour the buffer gives a method,
+--- so the table above is the one source for both.
+---@param method string|nil
+---@return string|nil
+function M.method_group(method)
+  return METHOD_GROUPS[(method or ""):upper()]
+end
+
 --- A value in `highlight.methods` is either a literal colour or the name of a
 --- group to link to. `#` is the only thing that separates the two.
 ---@param value string
@@ -65,6 +74,25 @@ function M.setup_highlights()
     CurliteHttpHeaderValue = "String",
     CurliteHttpSensitiveValue = "DiagnosticWarn",
     CurliteHttpRequestLine = cfg.line_bar_group or "CursorLine",
+
+    -- The hover card (`K`). The header name/value and method groups above are
+    -- reused there, so a request reads the same hovered as it does in the
+    -- buffer; these cover the parts the card adds.
+    CurliteHoverNormal = "NormalFloat",
+    CurliteHoverBorder = "FloatBorder",
+    CurliteHoverTitle = "Title",
+    CurliteHoverEnv = "Special",
+    CurliteHoverLabel = "Label",
+    -- `NonText` rather than `WinSeparator`: the dividers are dim furniture,
+    -- and a separator group carries a background in plenty of themes, which
+    -- drew the rule as a band across the card.
+    CurliteHoverRule = "NonText",
+    CurliteHoverMeta = "Comment",
+    CurliteHoverHint = "Comment",
+    CurliteHoverPunct = "Delimiter",
+    CurliteHoverQueryKey = "Identifier",
+    CurliteHoverQueryValue = "String",
+    CurliteHoverError = "DiagnosticError",
   }
   for name, target in pairs(links) do
     vim.api.nvim_set_hl(0, name, { link = target, default = true })

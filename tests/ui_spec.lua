@@ -641,8 +641,9 @@ function M.linewise_visual_is_not_shadowed_in_the_response_window(t)
   t.truthy(bound["T"], "T opens the verbose/trace pane")
 end
 
--- `K` is a hover, not the `<leader>Ri` window: small, anchored to the cursor,
--- unfocused, and gone the moment you move.
+-- `K` is a hover, not the `<leader>Ri` window: a card anchored to the cursor,
+-- unfocused, and gone the moment you move. The layout itself is covered in
+-- tests/hover_spec.lua; these are about the window it goes in.
 local function hover_float()
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     if vim.api.nvim_win_get_config(win).relative ~= "" then
@@ -673,7 +674,7 @@ function M.hover_opens_an_unfocused_cursor_anchored_float(t)
   local lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false)
   local text = table.concat(lines, "\n")
   t.match(text, "GET https://api%.example%.com/things", "variables are resolved")
-  t.match(text, "Accept: application/json", "headers come along")
+  t.match(text, "Accept:%s+application/json", "headers come along")
   t.falsy(text:find("curl", 1, true), "no curl equivalent -- that is `inspect`")
 
   pcall(vim.api.nvim_win_close, win, true)
@@ -705,6 +706,9 @@ function M.hover_twice_focuses_the_float(t)
   vim.wait(200)
   local win = hover_float()
   t.truthy(win, "the second K does not close it")
+  t.eq(#vim.tbl_filter(function(w)
+    return vim.api.nvim_win_get_config(w).relative ~= ""
+  end, vim.api.nvim_list_wins()), 1, "and does not stack a second card on the first")
   t.eq(vim.api.nvim_get_current_win(), win, "the second K puts the cursor inside it")
 
   -- `<Esc>` hands the cursor back, the same as curlite's other floats.
@@ -739,8 +743,10 @@ function M.hover_pretty_prints_a_json_body(t)
     vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false),
     "\n"
   )
-  t.match(text, '\n  "active": false', "the resolved body is indented as JSON")
-  t.match(text, '\n    "a"', "and nested arrays are spaced too")
+  -- The card pads every row, so the JSON indent is relative to that.
+  t.match(text, '\n%s+"active": false', "the resolved body is indented as JSON")
+  t.match(text, '\n%s+"a"%s*\n', "and nested arrays are spaced too")
+  t.match(text, "body .- json · 29B", "with a label saying what it is")
 
   pcall(vim.api.nvim_win_close, win, true)
   vim.api.nvim_buf_delete(buf, { force = true })
