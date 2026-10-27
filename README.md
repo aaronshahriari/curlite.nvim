@@ -94,7 +94,7 @@ There's a full tour in [`demo/api.http`](demo/api.http) — every request in it 
 | `<leader>Ra` | Send every request in the file | `<leader>Ri` | The same, plus the curl equivalent, in a window you can read |
 | `<leader>Rr` | Replay the last one | `<leader>Rc` | Yank a shareable cURL command |
 | `<leader>Re` | Pick the environment | `<leader>RC` | Turn a curl command in the clipboard into a request |
-| `<leader>Rf` | Jump to a request by name | `<leader>Ro` | Hide/show the response (also inside it) |
+| `<leader>Rf` | Jump to a request by name | `<leader>Ro` | Hide/show the response, from either side of the split |
 | `<leader>f` | Format the request file | `<leader>Rn` / `<leader>Rp` | Next / previous request |
 | `<leader>Rx` | Clear response state | `<leader>RO` | Insert a request from an OpenAPI spec |
 

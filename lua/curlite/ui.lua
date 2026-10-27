@@ -584,6 +584,48 @@ local function win_valid()
   return M.winid ~= nil and vim.api.nvim_win_is_valid(M.winid)
 end
 
+--- Is this buffer one of the response panes?
+---@param buf integer
+---@return boolean
+local function is_pane_buf(buf)
+  for _, pane in pairs(buffers) do
+    if pane == buf then
+      return true
+    end
+  end
+  return false
+end
+
+--- Every window currently showing a response pane.
+---
+--- `M.winid` is the window curlite opened, but a pane is an ordinary buffer in
+--- an ordinary window: a `:split` inside the response, or `<C-w>v`, leaves a
+--- second window on it, and a plugin or a `:buffer` elsewhere can put a third
+--- one anywhere. Hiding the response has to mean hiding what is on screen --
+--- otherwise toggling from inside a window curlite did not open closes the
+--- *other* one and leaves the cursor sitting in the response it was asked to
+--- put away.
+---@return integer[]
+local function pane_windows()
+  local wins = {}
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if is_pane_buf(vim.api.nvim_win_get_buf(win)) then
+      table.insert(wins, win)
+    end
+  end
+  return wins
+end
+
+--- Treat the window the cursor is in as the response window, if it is showing
+--- a pane. Where the response goes when it comes back is read off the window
+--- being hidden, so it has to be the one you are actually looking at.
+local function adopt_current_window()
+  local win = vim.api.nvim_get_current_win()
+  if win ~= M.winid and is_pane_buf(vim.api.nvim_win_get_buf(win)) then
+    M.winid = win
+  end
+end
+
 --- Swap the buffer shown in the response window.
 ---
 --- The window sets `winfixbuf` so a stray `:bnext` or a plugin can't replace
@@ -762,6 +804,17 @@ local function open_window(buf)
   wo.foldenable = false
   wo.cursorline = cfg.cursorline == true
   wo.winfixbuf = true
+
+  -- Pin the axis the split was sized on. Without the pin, 'equalalways' and
+  -- 'winwidth'/'winheight' quietly claw cells back from the response the next
+  -- time a window opens or the cursor lands in a now-narrow editor, so the
+  -- size you dragged to -- and the one restored on the next toggle -- would
+  -- drift a few columns at a time.
+  if cfg.display == "right" or cfg.display == "left" then
+    wo.winfixwidth = true
+  elseif cfg.display == "below" or cfg.display == "above" then
+    wo.winfixheight = true
+  end
 
   if vim.api.nvim_win_is_valid(prev) and not cfg.focus then
     vim.api.nvim_set_current_win(prev)
@@ -1075,15 +1128,28 @@ function M.show_pending(req)
 end
 
 function M.close()
+  adopt_current_window()
   if win_valid() then
     saved_split = capture_split()
-    vim.api.nvim_win_close(M.winid, true)
+  end
+  -- `win_hide`, not `win_close`: the pane buffers are kept either way, and
+  -- hiding the window the cursor is in hands the cursor back to a neighbour
+  -- rather than refusing, which is what makes the key work from inside the
+  -- response as well as from the request.
+  for _, win in ipairs(pane_windows()) do
+    pcall(vim.api.nvim_win_hide, win)
+  end
+  if win_valid() then
+    pcall(vim.api.nvim_win_close, M.winid, true)
   end
   M.winid = nil
 end
 
 function M.toggle()
-  if win_valid() then
+  -- Keyed off what is on screen rather than off `M.winid`, so a response in a
+  -- window curlite did not open -- or one whose window it has lost track of --
+  -- still toggles away instead of opening a second copy beside itself.
+  if #pane_windows() > 0 then
     M.close()
     return
   end

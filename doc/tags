@@ -84,6 +84,7 @@ curlite-script-request	curlite.txt	/*curlite-script-request*
 curlite-script-response	curlite.txt	/*curlite-script-response*
 curlite-scripts	curlite.txt	/*curlite-scripts*
 curlite-statusline	curlite.txt	/*curlite-statusline*
+curlite-toggle	curlite.txt	/*curlite-toggle*
 curlite-troubleshooting	curlite.txt	/*curlite-troubleshooting*
 curlite-variables	curlite.txt	/*curlite-variables*
 curlite-variables-document	curlite.txt	/*curlite-variables-document*

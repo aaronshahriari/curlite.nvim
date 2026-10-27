@@ -887,6 +887,21 @@ editor (`0.5` is 50%), a value of 1 or more is an absolute cell count, and 0
 leaves the size to Neovim. A size changed by hand is restored as a fraction,
 so toggling or resizing the terminal does not distort the layout.
 
+The split also pins the axis it was sized on ('winfixwidth' for a side split,
+'winfixheight' for one above or below), so the size you drag it to is the size
+it keeps: without the pin, 'equalalways' re-balances the response away a few
+columns at a time every time another window opens, and the size restored on
+the next toggle drifts with it.
+
+                                                            *curlite-toggle*
+`keymaps.toggle` hides and shows the response at the place and size it was
+last at. The same key is bound inside the response window
+(`result_keymaps.toggle`), so it folds the window away whichever side of the
+split the cursor is on, and it acts on every window showing the response --
+`:split` the response in two and one press puts both away, leaving the cursor
+back in the request. A response in a window curlite did not open toggles away
+too, rather than opening a second copy beside it.
+
 For `display = "float"`, `ui.float.width` and `ui.float.height` are fractions
 of the editor (`0.8` is 80%) and `ui.float.border` is any value that
 |nvim_open_win| accepts — `"rounded"`, `"single"`, `"double"`, `"solid"`,

@@ -463,6 +463,89 @@ function M.toggle_closes_the_response_from_inside_it(t)
   ui.reset()
 end
 
+-- The response is an ordinary buffer in an ordinary window: a `:split` inside
+-- it leaves a second window on the same pane, and the toggle key has to put
+-- the response away from whichever of them the cursor is in. It used to close
+-- the one window curlite remembered opening and leave the other standing --
+-- with the cursor in it, on the response it had just been asked to hide.
+function M.toggle_closes_every_window_the_response_is_in(t)
+  ui.reset()
+  local request_win = vim.api.nvim_get_current_win()
+  ui.show(fake(), { pane = "body", push = true })
+  local opened = ui.winid
+
+  vim.api.nvim_set_current_win(opened)
+  vim.cmd("split")
+  local second = vim.api.nvim_get_current_win()
+  t.falsy(second == opened, "there are two windows on the response now")
+
+  ui.toggle()
+  t.falsy(vim.api.nvim_win_is_valid(opened), "the window curlite opened is gone")
+  t.falsy(vim.api.nvim_win_is_valid(second), "and so is the one the cursor was in")
+  t.falsy(ui.winid, "nothing is tracked as open")
+  t.eq(vim.api.nvim_get_current_win(), request_win, "the cursor lands back in the request")
+
+  ui.toggle()
+  t.truthy(ui.winid and vim.api.nvim_win_is_valid(ui.winid), "and the key brings it back")
+  ui.reset()
+end
+
+-- Toggling reads what is on screen, not what curlite thinks it opened, so a
+-- response in a window it has lost track of still toggles away rather than
+-- opening a second copy beside itself.
+function M.toggle_hides_a_response_whose_window_it_has_lost_track_of(t)
+  ui.reset()
+  ui.show(fake(), { pane = "body", push = true })
+  local win = ui.winid
+  ui.winid = nil
+
+  ui.toggle()
+  t.falsy(vim.api.nvim_win_is_valid(win), "the window on screen is the one that closes")
+  t.eq(#vim.tbl_filter(function(w)
+    return vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(w)):match("^curlite://") ~= nil
+  end, vim.api.nvim_list_wins()), 0, "and no second response is opened")
+  ui.reset()
+end
+
+-- The size you drag the response to is the size it keeps, and therefore the
+-- size the next toggle restores. Without the axis pinned, 'equalalways'
+-- re-balances it away the next time any window opens.
+function M.a_resized_response_is_not_rebalanced_away(t)
+  local config = require("curlite.config")
+  local cfg = config.get().ui
+  local saved = { display = cfg.display, width = cfg.width, focus = cfg.focus }
+  cfg.display, cfg.width, cfg.focus = "right", 0.5, false
+
+  ui.reset()
+  ui.show(fake(), { pane = "body", push = true })
+  local response_win = ui.winid
+  t.truthy(vim.wo[response_win].winfixwidth, "a right-hand split pins its width")
+  vim.api.nvim_win_set_width(response_win, 31)
+
+  vim.cmd("wincmd p")
+  vim.cmd("vsplit")
+  t.eq(vim.api.nvim_win_get_width(response_win), 31, "a new split elsewhere leaves it alone")
+  vim.cmd("only")
+
+  ui.reset()
+  cfg.display, cfg.width, cfg.focus = saved.display, saved.width, saved.focus
+end
+
+function M.a_horizontal_split_pins_its_height(t)
+  local config = require("curlite.config")
+  local cfg = config.get().ui
+  local saved = { display = cfg.display, height = cfg.height, focus = cfg.focus }
+  cfg.display, cfg.height, cfg.focus = "below", 0.5, false
+
+  ui.reset()
+  ui.show(fake(), { pane = "body", push = true })
+  t.truthy(vim.wo[ui.winid].winfixheight, "and a split below pins its height")
+  t.falsy(vim.wo[ui.winid].winfixwidth, "width is left free there")
+
+  ui.reset()
+  cfg.display, cfg.height, cfg.focus = saved.display, saved.height, saved.focus
+end
+
 function M.split_defaults_to_half_the_editor(t)
   local cfg = require("curlite.config").defaults.ui
   t.eq(cfg.width, 0.5)
