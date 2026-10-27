@@ -382,13 +382,12 @@ function M.inspect()
   end
 end
 
---- Hover: the resolved request under the cursor, as a card beside it.
+--- Hover: the resolved request under the cursor, beside the cursor.
 ---
 --- Deliberately not `inspect`: this is the cursor-anchored glance that closes
 --- the moment you move, the way `vim.lsp.buf.hover()` does. It shows the
---- request and nothing else -- no curl line. Press `K` again to step into it,
---- `q` or `<Esc>` to close. `ui.hover` configures the layout; see
---- |curlite-hover|.
+--- request and nothing else -- no curl line, no furniture. Press `K` again to
+--- step into it, `q` or `<Esc>` to close. See |curlite-hover|.
 ---@return integer|nil buf, integer|nil win
 function M.hover()
   local hover = require("curlite.hover")
@@ -415,8 +414,6 @@ function M.hover()
     headers = shown and shown.headers or nil,
     header_order = shown and shown.header_order or nil,
     body = cmd and cmd.sent_body or nil,
-    name = req.name,
-    env = env.current(M.source_hint()),
     error = err,
   })
 end

@@ -91,40 +91,20 @@ M.defaults = {
       height = 0.8,
       border = "rounded",
     },
-    -- The hover card (`keymaps.hover`, `K`). Not the response window and not
-    -- the `inspect` float: a small, cursor-anchored card showing the resolved
-    -- request, laid out for a glance mid-edit. See |curlite-hover|.
+    -- The hover (`keymaps.hover`, `K`): the resolved request beside the
+    -- cursor, and nothing else. See |curlite-hover|.
     hover = {
-      --   "card"  -- the laid-out card: a titled border, the query string one
-      --              parameter per line, headers aligned into a column, a
-      --              labelled body
-      --   "plain" -- the popup curlite put up before the card: the raw
-      --              resolved request in a `vim.lsp.util.open_floating_preview`
-      --              float
-      style = "card",
-      -- Border. Falls back to `ui.float.border` when nil; "none" drops the
-      -- title and the key hints along with the border.
+      -- Border. Falls back to `ui.float.border` when nil.
       border = nil,
-      -- The card is at least this wide, so a one-line GET does not come up as
-      -- a sliver, and never wider than this, however long the URL.
-      min_width = 46,
-      max_width = 88,
-      -- Height ceiling: a fraction of the editor, or an absolute line count
-      -- above 1. A card taller than this scrolls -- press `K` to step in.
-      max_height = 0.5,
-      -- Cells of breathing room inside the border. 0 packs the text against
-      -- it the way an LSP hover does.
-      padding = 2,
-      -- Break the query string out, one `key = value` per line under the URL.
-      -- This is the single biggest readability win on a resolved request; set
-      -- false to keep the URL in one piece.
-      split_query = true,
-      -- Lines of body to show before `… N more lines`. 0 = no limit.
-      body_lines = 40,
-      -- The dim `headers ───` / `body ───` dividers.
-      rules = true,
-      -- The `K focus · q close` footer.
-      hints = true,
+      -- The ceiling on its size, as fractions of the editor (or absolute
+      -- cell counts above 1). It is otherwise as wide as its longest line
+      -- and as tall as it has lines, so the whole request is on screen
+      -- rather than folded away.
+      max_width = 0.9,
+      max_height = 0.8,
+      -- Columns of padding inside the border. 0 packs the text against it
+      -- the way an LSP hover does.
+      padding = 1,
     },
     -- The environment picker (`keymaps.select_env`). It is deliberately large:
     -- it shows every environment beside the variables that environment

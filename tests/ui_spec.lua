@@ -674,7 +674,7 @@ function M.hover_opens_an_unfocused_cursor_anchored_float(t)
   local lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false)
   local text = table.concat(lines, "\n")
   t.match(text, "GET https://api%.example%.com/things", "variables are resolved")
-  t.match(text, "Accept:%s+application/json", "headers come along")
+  t.match(text, "Accept: application/json", "headers come along")
   t.falsy(text:find("curl", 1, true), "no curl equivalent -- that is `inspect`")
 
   pcall(vim.api.nvim_win_close, win, true)
@@ -743,10 +743,9 @@ function M.hover_pretty_prints_a_json_body(t)
     vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false),
     "\n"
   )
-  -- The card pads every row, so the JSON indent is relative to that.
+  -- The hover pads every line, so the JSON indent is relative to that.
   t.match(text, '\n%s+"active": false', "the resolved body is indented as JSON")
   t.match(text, '\n%s+"a"%s*\n', "and nested arrays are spaced too")
-  t.match(text, "body .- json · 29B", "with a label saying what it is")
 
   pcall(vim.api.nvim_win_close, win, true)
   vim.api.nvim_buf_delete(buf, { force = true })

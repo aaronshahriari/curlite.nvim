@@ -31,7 +31,7 @@ curlite reads the JetBrains `.http` format — the same one JetBrains IDEs, VS C
 
 - **Send from the buffer** — the request under the cursor, all of them, or everything from the cursor down. ` 200 OK` appears inline at the end of the request line; timing, size and test totals can be enabled there too.
 - **Six response panes** — body, headers, both, timing and size, curl's verbose trace, script output. Open them with `B`/`H`/`A`/`S`/`T`/`O`, or jump with `1`–`6`. The body pane holds *only* the body, so treesitter highlights it and `gq` filters it live through `jq`, while `gi` drops a copy in its own tab to filter by hand. `/` stays plain Vim search.
-- **Hover the resolved request** — `K` puts a card beside the cursor showing what will actually be sent: the query string broken out one parameter per line, header values aligned into a column, the body labelled with its type and size, and the request's name and environment on the border. `K` again steps inside to scroll it; moving the cursor dismisses it.
+- **Hover the resolved request** — `K` puts what will actually be sent beside the cursor: request line, headers, body, nothing else, all of it on screen rather than folded away. `K` again steps inside; moving the cursor dismisses it.
 - **Environments** from `http-client.env.json` — a `$curliteshared` block, a gitignored `.private.` overlay, per-project `$default_headers`, and a picker that shows each environment's variables beside its name. Nothing is selected until you pick: arriving in a project starts with no environment, and the first send asks which one.
 - **Variables everywhere** — document, environment, process env, `.env`, prompts, dynamic (`{{$uuid}}`, `{{$timestamp -1 d}}`, `{{$randomInt 1 100}}`) and shell (`{{$exec pass show api/token}}`). Resolution is recursive, so `@base = {{host}}/v1` works.
 - **Request chaining** — `{{LOGIN.response.body.$.data.token}}` reads an earlier response, and `# @run LOGIN` makes curlite send it for you first.
@@ -169,31 +169,24 @@ DELETE {{prod}}/users/42
 <summary><b>Hover</b> — <code>K</code>, the resolved request beside the cursor</summary>
 
 ```
-╭ CREATE_THING · dev ─────────────────────────────╮
-│                                                 │
-│  POST https://api.example.com/v1/things         │
-│       ?expand = owner                           │
-│       &fields = id,name                         │
-│                                                 │
-│  headers ────────────────────────────────── 3   │
-│  Content-Type:   application/json               │
-│  Authorization:  Bearer eyJhbGciOiJIUzI1Ni…     │
-│                                                 │
-│  body ─────────────────────────── json · 94B    │
-│  {                                              │
-│    "name": "widget"                             │
-│  }                                              │
-│                                                 │
-╰ K focus · q close ──────────────────────────────╯
+╭────────────────────────────────────────────────────────────╮
+│ POST https://api.example.com/v1/things?expand=owner        │
+│ Content-Type: application/json                             │
+│ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9 │
+│ Accept: application/json                                   │
+│                                                            │
+│ {                                                          │
+│   "name": "widget",                                        │
+│   "active": false                                          │
+│ }                                                          │
+╰────────────────────────────────────────────────────────────╯
 ```
 
-What it shows is the request *after* the environment, the document variables and the pre-request script have had their say — the same thing `<leader>Ri` shows, minus the curl line and without leaving the buffer.
+The request *after* the environment, the document variables and the pre-request script have had their say — the same thing `<leader>Ri` shows, minus the curl line and without leaving the buffer.
 
-The query string is broken out because a resolved URL is the longest line in a request and the part you're checking is almost always a parameter. Header values are aligned into a column and wrap under it rather than off the edge. The border carries the request's `### NAME` and the environment it resolved against, so a card can't be mistaken for one from another environment.
+The request and nothing else: no labels, no dividers, no counts, no footer. It's the text the buffer holds, in the buffer's own colours, so there's nothing to read past to find the line you came for. What it does spend room on is showing all of it — as wide as its longest line, as tall as it has lines, up to `ui.hover.max_width` / `max_height`.
 
-`K` again steps inside — that's how you scroll a body taller than the card — then `q` or `<Esc>` closes it. Moving the cursor dismisses it. The method, URL and header names keep the colours they have in the buffer; the card's own groups are `CurliteHover*`.
-
-Every part of it is configurable under `ui.hover`, including `style = "plain"` for the old LSP-style popup. See `:h curlite-hover`.
+`K` again steps inside, which is how you scroll a request bigger than the ceiling; `q` or `<Esc>` closes it, and moving the cursor dismisses it. See `:h curlite-hover`.
 
 </details>
 
@@ -626,16 +619,11 @@ require("curlite").setup({
     width = 0.5,                           -- fraction or columns, left/right
     height = 0.5,                          -- fraction or rows, above/below
     float = { width = 0.8, height = 0.8, border = "rounded" },
-    hover = {                              -- the `K` card
-      style = "card",                      -- or "plain" for the old LSP-style popup
+    hover = {                              -- the `K` hover
       border = nil,                        -- nil = ui.float.border
-      min_width = 46, max_width = 88,      -- the card hugs its content between these
-      max_height = 0.5,                    -- fraction of the editor, or lines above 1
-      padding = 2,                         -- breathing room inside the border
-      split_query = true,                  -- one `key = value` per line under the URL
-      body_lines = 40,                     -- then `… N more lines`; 0 = all of it
-      rules = true,                        -- the `headers ───` / `body ───` dividers
-      hints = true,                        -- the `K focus · q close` footer
+      max_width = 0.9,                     -- the ceiling: fraction of the editor,
+      max_height = 0.8,                    -- or an absolute count above 1
+      padding = 1,                         -- columns inside the border
     },
     picker = {                             -- the environment picker
       backend = "auto",                    -- telescope when installed, else built-in

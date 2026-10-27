@@ -239,14 +239,6 @@ local function check_config()
     )
   end
 
-  local hover_style = (cfg.ui.hover or {}).style or "card"
-  if hover_style ~= "card" and hover_style ~= "plain" then
-    vim.health.error(
-      ("`ui.hover.style = %q` is not valid"):format(tostring(hover_style)),
-      { 'use "card" (the laid-out hover) or "plain" (the raw popup)' }
-    )
-  end
-
   if cfg.curl.cookie_jar then
     local dir = vim.fn.fnamemodify(cfg.curl.cookie_jar, ":h")
     if vim.fn.isdirectory(dir) == 0 and vim.fn.mkdir(dir, "p") == 0 then

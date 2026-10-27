@@ -75,24 +75,11 @@ function M.setup_highlights()
     CurliteHttpSensitiveValue = "DiagnosticWarn",
     CurliteHttpRequestLine = cfg.line_bar_group or "CursorLine",
 
-    -- The hover card (`K`). The header name/value and method groups above are
-    -- reused there, so a request reads the same hovered as it does in the
-    -- buffer; these cover the parts the card adds.
+    -- The hover (`K`). It reuses the header and method groups above, so a
+    -- hovered request reads exactly like the one in the buffer; these two are
+    -- all it adds.
     CurliteHoverNormal = "NormalFloat",
     CurliteHoverBorder = "FloatBorder",
-    CurliteHoverTitle = "Title",
-    CurliteHoverEnv = "Special",
-    CurliteHoverLabel = "Label",
-    -- `NonText` rather than `WinSeparator`: the dividers are dim furniture,
-    -- and a separator group carries a background in plenty of themes, which
-    -- drew the rule as a band across the card.
-    CurliteHoverRule = "NonText",
-    CurliteHoverMeta = "Comment",
-    CurliteHoverHint = "Comment",
-    CurliteHoverPunct = "Delimiter",
-    CurliteHoverQueryKey = "Identifier",
-    CurliteHoverQueryValue = "String",
-    CurliteHoverError = "DiagnosticError",
   }
   for name, target in pairs(links) do
     vim.api.nvim_set_hl(0, name, { link = target, default = true })
